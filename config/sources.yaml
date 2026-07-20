@@ -1,0 +1,15 @@
+ransomware_live:
+  enabled: true
+  base_url: "https://api.ransomware.live/v2"
+  timeout_seconds: 15.0
+  max_items: 100
+
+cisa_kev:
+  enabled: true
+  recent_days: 30     # first run backfills this window; afterwards seen-state dedupes
+  max_items: 200
+
+# Gated: enabling this raises a config error until the project has documented
+# legal approval for direct onion collection (see docs/architecture.md).
+tor_onion:
+  enabled: false

@@ -1,0 +1,21 @@
+# Awareness-mode interest filters. All lists optional; empty list = filter off.
+# Matching: org/keyword = case-insensitive word-boundary; domains = exact + subdomains.
+org_names: []       # add specific orgs later (employers, suppliers, customers)
+domains: []         # add owned/watched domains later
+keywords:           # technologies & topics to prioritize (drives HIGH alerts on KEV/DLS)
+  - "cisco"
+  - "fortinet"
+  - "palo alto"
+  - "vpn"
+  - "firewall"
+  - "vmware"
+  - "citrix"
+  - "exchange"
+  - "active directory"
+  - "ransomware"
+sectors:            # sectors of interest (substring match vs source sector labels)
+  - "Healthcare"
+  - "Financial"
+countries:          # ISO country codes of interest
+  - "TH"
+  - "SG"
