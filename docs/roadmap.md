@@ -4,7 +4,9 @@
 live (verified: 24 recent exploited CVEs, keyword alerts firing at HIGH for
 Cisco/Fortinet/AD). Awareness-mode pivot: user has no owned domains to watch, so the
 watchlist is technology/sector/country interest filters and HIBP is deferred.
-41 tests green. Next: LLM triage agent, then paste/GitHub leak watch.
+41 tests green. Scheduler recipe ready (ops/ + docs/operations.md) but deliberately
+not activated — deployment target is the user's always-on Mac mini.
+Next: LLM triage agent, then paste/GitHub leak watch.
 
 ## Phase 1 — walking skeleton (DONE)
 - [x] Pure core: models, watchlist matching, deterministic scoring, dedup — unit-tested
@@ -22,8 +24,10 @@ watchlist is technology/sector/country interest filters and HIBP is deferred.
 - [ ] Semaphore-bounded collector concurrency + per-source rate limits
 
 ## Phase 3 — operations
+- [x] Scheduler recipe: ops/run_daily.sh + launchd plist template + docs/operations.md
+      runbook (digest archive, notify on exit 1/3). **Activation deferred by choice** —
+      will be deployed on the user's always-on Mac mini, not the dev MacBook.
 - [ ] Paste-site / GitHub leak watch collector (brand & asset mentions)
-- [ ] Scheduler recipe (cron/launchd) using exit codes 1/3 for notify-on-alert/failure
 - [ ] Digest sinks: file archive, optional webhook/email
 - [ ] CI: ruff + mypy + pytest on PR; pip-audit dependency scan
 

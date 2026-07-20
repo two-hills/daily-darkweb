@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: replace __REPO_DIR__ with the absolute repo path on the target
+     machine (docs/operations.md has the one-liner), then load with launchctl. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dailydarkweb.digest</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO_DIR__/ops/run_daily.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/daily-darkweb.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/daily-darkweb.err.log</string>
+</dict>
+</plist>
