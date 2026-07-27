@@ -16,6 +16,7 @@ from daily_darkweb.config import SourcesConfig, load_sources, load_watchlist
 from daily_darkweb.core.dedup import dedup_key
 from daily_darkweb.core.models import Report
 from daily_darkweb.interface.render import render_markdown
+from daily_darkweb.interface.render_html import render_html
 from daily_darkweb.orchestration.pipeline import run_pipeline
 
 _MAX_SEEN_KEYS = 50_000
@@ -78,8 +79,15 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.format == "json":
         print(report.model_dump_json(indent=2))
+    elif args.format == "html":
+        print(render_html(report))
     else:
         print(render_markdown(report))
+
+    if args.html_out:
+        html_path = Path(args.html_out)
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        html_path.write_text(render_html(report), encoding="utf-8")
 
     if not args.no_state:
         _save_seen(state_path, seen, report)
@@ -97,7 +105,10 @@ def main() -> int:
     )
     parser.add_argument("--state", default=".state/seen.json", help="seen-items state file")
     parser.add_argument("--no-state", action="store_true", help="ignore and don't update state")
-    parser.add_argument("--format", choices=["md", "json"], default="md")
+    parser.add_argument("--format", choices=["md", "json", "html"], default="md")
+    parser.add_argument(
+        "--html-out", default=None, help="also write a browsable HTML digest to this path"
+    )
     args = parser.parse_args()
     return asyncio.run(_run(args))
 

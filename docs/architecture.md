@@ -10,12 +10,19 @@ their APIs, normalize, and reason deterministically.
 ## Layers (dependencies point inward)
 
 ```
-interface (cli, render, state file)      I/O allowed
+interface (cli, digest_view, render_md/html, state file)  I/O allowed
     └── orchestration (pipeline)         async fan-out over collectors
             ├── collectors (adapters)    network I/O, per-call timeout, retry
             └── core (models, matching,  PURE: no I/O, no network, no AI,
                  scoring, dedup)         `now` always passed in
 ```
+
+`interface/digest_view.py` is a format-agnostic view model shared by both renderers: it
+splits observations by source so `cisa_kev` entries (a handful per week) always get their
+own "Vulnerability watch" section instead of competing with `ransomware_live` volume
+(dozens per day) for a shared top-N slot. `render.py` (markdown) and `render_html.py`
+(self-contained static page, no server) both format the same `DigestView` — add a third
+output format by writing one more renderer against it, not by touching the pipeline.
 
 - Collectors implement the `Collector` protocol (`collect() -> CollectResult`) and
   normalize source records into `RawItem`. Adding a source never touches the core.
@@ -42,6 +49,9 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   retries on 429/5xx/timeouts only (honoring Retry-After, capped); auth/validation 4xx
   never retried; result sets bounded by `max_items`.
 - **State:** `.state/seen.json` holds only dedup hashes, capped at 50k keys.
+- **HTML output escapes everything.** `render_html.py` runs every scraped field through
+  `html.escape` before interpolation — titles/bodies are untrusted and must never inject
+  markup or script into a page that gets opened in a browser.
 
 ## Collectors
 

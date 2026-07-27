@@ -17,7 +17,8 @@ uv sync
 
 # 3. Prove it works end-to-end once, by hand
 bash ops/run_daily.sh
-# expect: digests/YYYY-MM-DD.md created; exit code 0/1/3
+# expect: digests/YYYY-MM-DD.md and .html created; exit code 0/1/3
+open digests/$(date +%Y-%m-%d).html   # read it in a browser
 
 # 4. Install the launchd job (07:30 daily; edit Hour/Minute in the plist to taste)
 sed -e "s|__REPO_DIR__|$HOME/Apps/Daily_Darkweb|g" -e "s|__HOME__|$HOME|g" \
@@ -32,7 +33,8 @@ launchctl kickstart -k "gui/$(id -u)/com.dailydarkweb.digest"
 
 ## Day-to-day
 
-- Digests archive to `digests/YYYY-MM-DD.md`; stderr to `digests/YYYY-MM-DD.err.log`.
+- Digests archive to `digests/YYYY-MM-DD.md` (plain text) and `.html` (open in a browser —
+  color-coded severity, clickable source links); stderr to `digests/YYYY-MM-DD.err.log`.
 - macOS notification fires only when there are new alerts (exit 1) or a collector
   failed (exit 3 — "do not treat as all-clear"). Clean runs (0) are silent.
 - Runner/launchd logs: `~/Library/Logs/daily-darkweb.log` / `.err.log`.

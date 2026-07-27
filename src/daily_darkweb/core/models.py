@@ -52,8 +52,9 @@ class RawItem(BaseModel):
     country: str | None = None
     victim_domain: str | None = None
     reference_url: str | None = None
+    due_date: datetime | None = None  # remediation deadline, when the source provides one
 
-    @field_validator("fetched_at", "published_at")
+    @field_validator("fetched_at", "published_at", "due_date")
     @classmethod
     def _aware(cls, v: datetime | None) -> datetime | None:
         return None if v is None else _ensure_aware(v)

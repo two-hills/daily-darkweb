@@ -10,11 +10,12 @@ UV_BIN="${UV_BIN:-$(command -v uv || echo "$HOME/.local/bin/uv")}"
 mkdir -p "$ARCHIVE_DIR"
 STAMP="$(date +%Y-%m-%d)"
 OUT="$ARCHIVE_DIR/$STAMP.md"
+OUT_HTML="$ARCHIVE_DIR/$STAMP.html"
 ERR="$ARCHIVE_DIR/$STAMP.err.log"
 
 cd "$REPO_DIR"
 set +e
-"$UV_BIN" run daily-darkweb >"$OUT" 2>"$ERR"
+"$UV_BIN" run daily-darkweb --html-out "$OUT_HTML" >"$OUT" 2>"$ERR"
 STATUS=$?
 set -e
 
@@ -24,8 +25,8 @@ notify() {
 }
 
 case "$STATUS" in
-    0) echo "clean run, no new alerts: $OUT" ;;
-    1) notify "New alerts in today's digest: $OUT" ;;
+    0) echo "clean run, no new alerts: $OUT_HTML" ;;
+    1) notify "New alerts - open $OUT_HTML" ;;
     3) notify "Collector FAILURE - do not treat as all-clear. See $ERR" ;;
     *) notify "Unexpected error (exit $STATUS). See $ERR" ;;
 esac

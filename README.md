@@ -50,7 +50,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12+.
 git clone <this-repo>
 cd daily-darkweb
 uv sync
-uv run daily-darkweb
+uv run daily-darkweb --html-out digest.html && open digest.html   # 🌐 browsable report
 ```
 
 Exit codes (scheduler-friendly): `0` ✅ clean · `1` ⚠️ alerts found · `3` ❌ collection failure.

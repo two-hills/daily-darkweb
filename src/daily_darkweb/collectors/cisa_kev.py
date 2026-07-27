@@ -27,9 +27,11 @@ class _KevRecord(BaseModel):
     product: str = ""
     name: str = Field(alias="vulnerabilityName", default="")
     date_added: date | None = Field(alias="dateAdded", default=None)
+    due_date: date | None = Field(alias="dueDate", default=None)
     short_description: str = Field(alias="shortDescription", default="")
     required_action: str = Field(alias="requiredAction", default="")
     known_ransomware: str = Field(alias="knownRansomwareCampaignUse", default="Unknown")
+    cwes: list[str] = Field(default_factory=list)
 
 
 class CisaKevCollector:
@@ -104,22 +106,21 @@ class CisaKevCollector:
         ]
         if record.known_ransomware.strip().lower() == "known":
             body_parts.append("Known use in ransomware campaigns.")
-        published = (
-            datetime(
-                record.date_added.year,
-                record.date_added.month,
-                record.date_added.day,
-                tzinfo=UTC,
-            )
-            if record.date_added
-            else None
-        )
+        if record.cwes:
+            body_parts.append(f"CWE: {', '.join(record.cwes)}")
         return RawItem(
             source=self.name,
             external_id=record.cve_id,
             title=f"{record.cve_id}: {record.name or 'exploited vulnerability'}",
             body="\n".join(part for part in body_parts if part.strip()),
             fetched_at=fetched_at,
-            published_at=published,
+            published_at=_as_utc_datetime(record.date_added),
+            due_date=_as_utc_datetime(record.due_date),
             reference_url=f"https://nvd.nist.gov/vuln/detail/{record.cve_id}",
         )
+
+
+def _as_utc_datetime(value: date | None) -> datetime | None:
+    if value is None:
+        return None
+    return datetime(value.year, value.month, value.day, tzinfo=UTC)

@@ -17,9 +17,11 @@ RECENT_VULN = {
     "product": "ASA",
     "vulnerabilityName": "Cisco ASA Remote Code Execution Vulnerability",
     "dateAdded": "2026-07-15",
+    "dueDate": "2026-07-29",
     "shortDescription": "Cisco ASA contains an RCE vulnerability.",
     "requiredAction": "Apply updates per vendor instructions.",
     "knownRansomwareCampaignUse": "Known",
+    "cwes": ["CWE-78"],
 }
 
 OLD_VULN = dict(RECENT_VULN, cveID="CVE-2020-0001", dateAdded="2020-01-01")
@@ -45,8 +47,11 @@ async def test_maps_recent_entries_only(client: httpx.AsyncClient) -> None:
     assert item.external_id == "CVE-2026-1234"
     assert "Cisco" in item.body
     assert "ransomware campaigns" in item.body
+    assert "CWE-78" in item.body
     assert item.reference_url == "https://nvd.nist.gov/vuln/detail/CVE-2026-1234"
     assert item.published_at is not None
+    assert item.due_date is not None
+    assert item.due_date.date().isoformat() == "2026-07-29"
 
 
 @respx.mock
