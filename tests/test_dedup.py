@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from tests.conftest import make_item
-
 from daily_darkweb.core.dedup import dedup_key, dedupe, filter_new
+from tests.conftest import make_item
 
 
 def test_key_stable_and_case_insensitive() -> None:

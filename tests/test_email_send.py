@@ -76,9 +76,37 @@ def test_config_defaults_from_missing_email_from() -> None:
     assert config.recipients == ["me@gmail.com", "boss@example.com"]
 
 
-def test_config_requires_credentials() -> None:
+def test_config_requires_identity() -> None:
     with pytest.raises(ValidationError):
         EmailConfig(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_config_raises_when_password_missing_everywhere() -> None:
+    with (
+        patch("daily_darkweb.interface.email_send.keychain_password", return_value=None),
+        pytest.raises(ValidationError, match="no SMTP password"),
+    ):
+        EmailConfig(  # type: ignore[call-arg]
+            _env_file=None, smtp_user="me@gmail.com", email_to="me@gmail.com"
+        )
+
+
+def test_config_falls_back_to_keychain_password() -> None:
+    with patch(
+        "daily_darkweb.interface.email_send.keychain_password", return_value="from-keychain"
+    ) as mock_kc:
+        config = EmailConfig(  # type: ignore[call-arg]
+            _env_file=None, smtp_user="me@gmail.com", email_to="me@gmail.com"
+        )
+        assert config.smtp_password == "from-keychain"
+        mock_kc.assert_called_once_with("claude-email-notify")
+
+
+def test_config_env_password_takes_priority_over_keychain() -> None:
+    with patch("daily_darkweb.interface.email_send.keychain_password") as mock_kc:
+        config = _config(smtp_password="from-env")
+        assert config.smtp_password == "from-env"
+        mock_kc.assert_not_called()
 
 
 def test_subject_reflects_failure_over_alerts() -> None:
@@ -102,13 +130,13 @@ def test_message_has_html_and_attachment_parts() -> None:
     assert "application/html" in content_types  # the .html attachment
 
 
-def test_send_message_uses_starttls_and_login() -> None:
+def test_send_message_uses_smtp_ssl_and_login() -> None:
     config = _config()
     msg = build_message(_report([_alert(Severity.HIGH, 68)]), "<p>x</p>", config)
-    with patch("daily_darkweb.interface.email_send.smtplib.SMTP") as smtp_cls:
+    with patch("daily_darkweb.interface.email_send.smtplib.SMTP_SSL") as smtp_cls:
         server = MagicMock()
         smtp_cls.return_value.__enter__.return_value = server
         send_message(msg, config)
-        server.starttls.assert_called_once()
+        smtp_cls.assert_called_once_with(config.smtp_host, config.smtp_port, timeout=30)
         server.login.assert_called_once_with(config.smtp_user, config.smtp_password)
         server.sendmail.assert_called_once()

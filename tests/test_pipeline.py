@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from tests.conftest import make_item
-
 from daily_darkweb.core.dedup import dedup_key
 from daily_darkweb.core.models import (
     CollectionStatus,
@@ -13,6 +11,7 @@ from daily_darkweb.core.models import (
 )
 from daily_darkweb.interface.render import render_markdown
 from daily_darkweb.orchestration.pipeline import run_pipeline
+from tests.conftest import make_item
 
 
 class StubCollector:

@@ -35,8 +35,12 @@ launchctl kickstart -k "gui/$(id -u)/com.dailydarkweb.digest"
 
 Off by default. To enable, on the machine that will run it:
 
-1. Add SMTP credentials to `.env` (see `.env.example`) — for Gmail, use an
-   [App Password](https://myaccount.google.com/apppasswords), never your real password.
+1. Add `SMTP_USER` and `EMAIL_TO` to `.env` (see `.env.example`). Leave `SMTP_PASSWORD`
+   unset — it falls back to the macOS Keychain item `claude-email-notify`, the same
+   Gmail App Password already configured for `~/.claude/hooks/email-notify.py`. (Set
+   `SMTP_PASSWORD` explicitly instead if you'd rather not share that credential, or add
+   a dedicated Keychain item: `security add-generic-password -a $USER -s
+   claude-email-notify -w '<app password>'`.)
 2. Set `DAILY_DARKWEB_EMAIL=1` in the environment `ops/run_daily.sh` runs under — either
    `export DAILY_DARKWEB_EMAIL=1` before a manual run, or add an
    `<key>EnvironmentVariables</key>` dict with `DAILY_DARKWEB_EMAIL=1` to the launchd plist.

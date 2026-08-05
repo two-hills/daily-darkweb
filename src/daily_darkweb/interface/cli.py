@@ -76,14 +76,10 @@ def _maybe_send_email(report: Report, html_body: str) -> None:
         print("email: clean run, nothing to notify.", file=sys.stderr)
         return
     try:
-        config = EmailConfig()  # type: ignore[call-arg]  # loaded from env/.env
+        config = EmailConfig()  # type: ignore[call-arg]  # loaded from env/.env/Keychain
     except ValidationError as exc:
-        missing = ", ".join(str(e["loc"][0]) for e in exc.errors())
-        print(
-            f"email: --email requested but SMTP config incomplete (missing: {missing}). "
-            "Set SMTP_USER, SMTP_PASSWORD, EMAIL_TO in .env — see .env.example.",
-            file=sys.stderr,
-        )
+        reasons = "; ".join(e["msg"] for e in exc.errors())
+        print(f"email: --email requested but config invalid: {reasons}", file=sys.stderr)
         return
     try:
         send_message(build_message(report, html_body, config), config)

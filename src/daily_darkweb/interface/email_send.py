@@ -6,6 +6,7 @@ something to see (alerts or a collector failure), matching the macOS notify beha
 from __future__ import annotations
 
 import smtplib
+import subprocess
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -15,23 +16,59 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from daily_darkweb.core.models import Report
 
+_KEYCHAIN_TIMEOUT_SECONDS = 10
+_SECURITY_BIN = "/usr/bin/security"  # absolute path: no PATH-hijacking of the binary
+
+
+def keychain_password(service: str) -> str | None:
+    """Read a password from the macOS Keychain — same technique and default service
+    (`claude-email-notify`) as ~/.claude/hooks/email-notify.py, so the Gmail App
+    Password configured for Claude Code notifications can be reused here instead of
+    duplicating the same secret into a second plaintext location.
+    """
+    try:
+        # No shell, list-form args, absolute binary path: `service` (a config value,
+        # not attacker-controlled input) cannot inject anything here.
+        result = subprocess.run(  # noqa: S603
+            [_SECURITY_BIN, "find-generic-password", "-s", service, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=_KEYCHAIN_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.rstrip("\n") or None
+
 
 class EmailConfig(BaseSettings):
-    """SMTP credentials, loaded from env / .env only — never hardcoded."""
+    """SMTP identity from env/.env (never hardcoded — this repo is public); the
+    password falls back to the macOS Keychain when SMTP_PASSWORD isn't set.
+    """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
+    smtp_port: int = 465
     smtp_user: str
-    smtp_password: str
+    smtp_password: str = ""
+    smtp_keychain_service: str = "claude-email-notify"
     email_from: str = ""
     email_to: str
 
     @model_validator(mode="after")
-    def _default_from(self) -> EmailConfig:
+    def _resolve_secrets(self) -> EmailConfig:
         if not self.email_from:
             self.email_from = self.smtp_user
+        if not self.smtp_password:
+            self.smtp_password = keychain_password(self.smtp_keychain_service) or ""
+        if not self.smtp_password:
+            raise ValueError(
+                "no SMTP password: set SMTP_PASSWORD in .env, or add one to the macOS "
+                f"Keychain (security add-generic-password -a $USER "
+                f"-s {self.smtp_keychain_service} -w '<app password>')"
+            )
         return self
 
     @property
@@ -62,8 +99,7 @@ def build_message(report: Report, html_body: str, config: EmailConfig) -> MIMEMu
 
 
 def send_message(msg: MIMEMultipart, config: EmailConfig) -> None:
-    with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=30) as server:
-        server.starttls()
+    with smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=30) as server:
         server.login(config.smtp_user, config.smtp_password)
         server.sendmail(config.email_from, config.recipients, msg.as_string())
 

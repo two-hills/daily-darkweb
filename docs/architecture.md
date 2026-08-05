@@ -53,8 +53,13 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
 - **Email is a redundant channel, not a source of truth.** `interface/email_send.py`
-  loads SMTP credentials from env/`.env` only (never hardcoded, per Safety above) and
-  sends only when `should_notify()` is true (alerts or a collector failure). A send
+  loads SMTP identity (user/recipient) from env/`.env` only — never hardcoded, and
+  deliberately kept out of committed source since this repo is public. The password
+  falls back to the macOS Keychain (`security find-generic-password`) when
+  `SMTP_PASSWORD` is unset, reusing the same `claude-email-notify` item as
+  `~/.claude/hooks/email-notify.py` instead of a second plaintext copy of the same
+  secret — Keychain is itself a secret manager, consistent with the Safety baseline.
+  Sends only when `should_notify()` is true (alerts or a collector failure). A send
   failure is logged to stderr and never changes the CLI's exit code — the archived
   `.md`/`.html` files remain authoritative either way.
 

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from tests.conftest import make_item
-
 from daily_darkweb.core.models import Match, MatchField, Severity
 from daily_darkweb.core.scoring import UNMATCHED_SCORE_CAP, score_item
+from tests.conftest import make_item
 
 
 def _match(field: MatchField) -> Match:

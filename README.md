@@ -82,9 +82,11 @@ always-on machine 🖥️) that archives digests and notifies only when there's 
 ## 📧 Email notifications (optional)
 
 `--email` sends the HTML digest by SMTP (inline body + attachment) when there are alerts
-or a collector failure — silent on clean runs. Off by default; set `SMTP_USER`,
-`SMTP_PASSWORD`, `EMAIL_TO` in `.env` (see `.env.example`) to enable. Delivery is a
-convenience channel — the archived `.md`/`.html` files stay authoritative either way.
+or a collector failure — silent on clean runs. Off by default; set `SMTP_USER` and
+`EMAIL_TO` in `.env` (see `.env.example`) to enable — the password can come from
+`SMTP_PASSWORD` or fall back to a macOS Keychain item, so it doesn't need to be
+duplicated anywhere. Delivery is a convenience channel — the archived `.md`/`.html`
+files stay authoritative either way.
 
 ## 🧪 Development
 
