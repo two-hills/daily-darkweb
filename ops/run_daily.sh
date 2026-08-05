@@ -13,9 +13,16 @@ OUT="$ARCHIVE_DIR/$STAMP.md"
 OUT_HTML="$ARCHIVE_DIR/$STAMP.html"
 ERR="$ARCHIVE_DIR/$STAMP.err.log"
 
+# Opt-in: set DAILY_DARKWEB_EMAIL=1 (env or launchd plist) once SMTP_* / EMAIL_TO are in
+# .env. Off by default so this feature never starts sending mail on its own.
+EMAIL_FLAG=()
+if [ "${DAILY_DARKWEB_EMAIL:-0}" = "1" ]; then
+    EMAIL_FLAG=(--email)
+fi
+
 cd "$REPO_DIR"
 set +e
-"$UV_BIN" run daily-darkweb --html-out "$OUT_HTML" >"$OUT" 2>"$ERR"
+"$UV_BIN" run daily-darkweb --html-out "$OUT_HTML" "${EMAIL_FLAG[@]}" >"$OUT" 2>"$ERR"
 STATUS=$?
 set -e
 

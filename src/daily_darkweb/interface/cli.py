@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import smtplib
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+from pydantic import ValidationError
 
 from daily_darkweb.collectors.base import Collector
 from daily_darkweb.collectors.cisa_kev import CisaKevCollector
@@ -15,6 +17,12 @@ from daily_darkweb.collectors.ransomware_live import RansomwareLiveCollector
 from daily_darkweb.config import SourcesConfig, load_sources, load_watchlist
 from daily_darkweb.core.dedup import dedup_key
 from daily_darkweb.core.models import Report
+from daily_darkweb.interface.email_send import (
+    EmailConfig,
+    build_message,
+    send_message,
+    should_notify,
+)
 from daily_darkweb.interface.render import render_markdown
 from daily_darkweb.interface.render_html import render_html
 from daily_darkweb.orchestration.pipeline import run_pipeline
@@ -60,6 +68,30 @@ def _save_seen(path: Path, seen: frozenset[str], report: Report) -> None:
     path.write_text(json.dumps({"seen": merged}), encoding="utf-8")
 
 
+def _maybe_send_email(report: Report, html_body: str) -> None:
+    """Email is a redundant notification channel — its failure never affects the
+    run's exit code or the archived .md/.html files, which remain the source of truth.
+    """
+    if not should_notify(report):
+        print("email: clean run, nothing to notify.", file=sys.stderr)
+        return
+    try:
+        config = EmailConfig()  # type: ignore[call-arg]  # loaded from env/.env
+    except ValidationError as exc:
+        missing = ", ".join(str(e["loc"][0]) for e in exc.errors())
+        print(
+            f"email: --email requested but SMTP config incomplete (missing: {missing}). "
+            "Set SMTP_USER, SMTP_PASSWORD, EMAIL_TO in .env — see .env.example.",
+            file=sys.stderr,
+        )
+        return
+    try:
+        send_message(build_message(report, html_body, config), config)
+        print(f"email: sent to {config.email_to}", file=sys.stderr)
+    except (smtplib.SMTPException, OSError) as exc:
+        print(f"email: send failed ({type(exc).__name__}: {exc})", file=sys.stderr)
+
+
 async def _run(args: argparse.Namespace) -> int:
     config_dir = Path(args.config_dir)
     watchlist = load_watchlist(config_dir / "watchlist.yaml")
@@ -77,17 +109,24 @@ async def _run(args: argparse.Namespace) -> int:
             return 2
         report = await run_pipeline(collectors, watchlist, seen, now=datetime.now(UTC))
 
+    html_body: str | None = None
+    if args.format == "html" or args.html_out or args.email:
+        html_body = render_html(report)
+
     if args.format == "json":
         print(report.model_dump_json(indent=2))
     elif args.format == "html":
-        print(render_html(report))
+        print(html_body)
     else:
         print(render_markdown(report))
 
     if args.html_out:
         html_path = Path(args.html_out)
         html_path.parent.mkdir(parents=True, exist_ok=True)
-        html_path.write_text(render_html(report), encoding="utf-8")
+        html_path.write_text(html_body or render_html(report), encoding="utf-8")
+
+    if args.email:
+        _maybe_send_email(report, html_body or render_html(report))
 
     if not args.no_state:
         _save_seen(state_path, seen, report)
@@ -108,6 +147,11 @@ def main() -> int:
     parser.add_argument("--format", choices=["md", "json", "html"], default="md")
     parser.add_argument(
         "--html-out", default=None, help="also write a browsable HTML digest to this path"
+    )
+    parser.add_argument(
+        "--email",
+        action="store_true",
+        help="email the digest (SMTP config from env/.env) when there are alerts or a failure",
     )
     args = parser.parse_args()
     return asyncio.run(_run(args))

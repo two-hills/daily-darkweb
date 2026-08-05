@@ -52,6 +52,11 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
+- **Email is a redundant channel, not a source of truth.** `interface/email_send.py`
+  loads SMTP credentials from env/`.env` only (never hardcoded, per Safety above) and
+  sends only when `should_notify()` is true (alerts or a collector failure). A send
+  failure is logged to stderr and never changes the CLI's exit code — the archived
+  `.md`/`.html` files remain authoritative either way.
 
 ## Collectors
 

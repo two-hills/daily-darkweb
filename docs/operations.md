@@ -31,6 +31,23 @@ launchctl list | grep dailydarkweb
 launchctl kickstart -k "gui/$(id -u)/com.dailydarkweb.digest"
 ```
 
+## Email notifications (optional)
+
+Off by default. To enable, on the machine that will run it:
+
+1. Add SMTP credentials to `.env` (see `.env.example`) — for Gmail, use an
+   [App Password](https://myaccount.google.com/apppasswords), never your real password.
+2. Set `DAILY_DARKWEB_EMAIL=1` in the environment `ops/run_daily.sh` runs under — either
+   `export DAILY_DARKWEB_EMAIL=1` before a manual run, or add an
+   `<key>EnvironmentVariables</key>` dict with `DAILY_DARKWEB_EMAIL=1` to the launchd plist.
+3. Test it once by hand: `DAILY_DARKWEB_EMAIL=1 bash ops/run_daily.sh` — check `.err.log`
+   for `email: sent to ...` or a clear error if SMTP config is wrong.
+
+Only sends when there are alerts or a collector failure (same trigger as the macOS
+notification); clean runs stay silent. The email body has the full HTML report inline
+plus the same file as an attachment. Delivery failure never affects the exit code or the
+archived files — email is a convenience channel, not the source of truth.
+
 ## Day-to-day
 
 - Digests archive to `digests/YYYY-MM-DD.md` (plain text) and `.html` (open in a browser —

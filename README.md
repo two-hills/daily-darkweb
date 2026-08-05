@@ -79,6 +79,13 @@ in awareness mode by default. Collector toggles live in [config/sources.yaml](co
 See [docs/operations.md](docs/operations.md) for a launchd-based runbook (recommended for an
 always-on machine 🖥️) that archives digests and notifies only when there's something to see.
 
+## 📧 Email notifications (optional)
+
+`--email` sends the HTML digest by SMTP (inline body + attachment) when there are alerts
+or a collector failure — silent on clean runs. Off by default; set `SMTP_USER`,
+`SMTP_PASSWORD`, `EMAIL_TO` in `.env` (see `.env.example`) to enable. Delivery is a
+convenience channel — the archived `.md`/`.html` files stay authoritative either way.
+
 ## 🧪 Development
 
 ```sh
