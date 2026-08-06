@@ -17,7 +17,7 @@ uv sync
 
 # 3. Prove it works end-to-end once, by hand
 bash ops/run_daily.sh
-# expect: digests/YYYY-MM-DD.md and .html created; exit code 0/1/3
+# expect: digests/YYYY-MM-DD.md and .html created; exit code 0/1/3 (4 = runner failed)
 open digests/$(date +%Y-%m-%d).html   # read it in a browser
 
 # 4. Install the launchd job (07:30 daily; edit Hour/Minute in the plist to taste)
@@ -58,6 +58,9 @@ archived files — email is a convenience channel, not the source of truth.
   color-coded severity, clickable source links); stderr to `digests/YYYY-MM-DD.err.log`.
 - macOS notification fires only when there are new alerts (exit 1) or a collector
   failed (exit 3 — "do not treat as all-clear"). Clean runs (0) are silent.
+- Exit 4 means the runner itself died before the pipeline reported (bad config, missing
+  `uv`, shell error) — no digest was produced. It is deliberately *not* 1: launchd would
+  otherwise record a dead runner as an ordinary alerting day.
 - Runner/launchd logs: `~/Library/Logs/daily-darkweb.log` / `.err.log`.
 - Seen-state lives in `.state/seen.json` (machine-local, gitignored). First run on a
   new machine backfills the KEV 30-day window — that is expected, not a bug.
@@ -71,7 +74,7 @@ launchctl bootout "gui/$(id -u)/com.dailydarkweb.digest"    # unload
 
 ## Troubleshooting
 
-- `launchctl list` shows last exit code next to the label (0/1/3 as above).
+- `launchctl list` shows last exit code next to the label (0/1/3/4 as above).
 - Digest missing → check `.err.log` files; a FAILED collector section inside the
   digest itself means the run worked but an upstream source did not.
 - After moving the repo, regenerate the plist (step 4) — it embeds absolute paths.

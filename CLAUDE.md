@@ -17,7 +17,8 @@ real-world threat awareness and early prevention for security professionals.
 ## Core workflow
 `uv run daily-darkweb` → collectors (async, timeout, transient-only retry) → dedupe +
 seen-state filter → watchlist match → deterministic score/severity → markdown/JSON digest.
-Exit codes: 0 clean · 1 alerts found · 3 collection failure (for schedulers).
+Exit codes: 0 clean · 1 alerts found · 3 collection failure · 4 runner died, no digest
+(for schedulers).
 
 ## Repo layout
 - `src/daily_darkweb/core/` — pure domain: models, matching, scoring, dedup (no I/O/AI)
