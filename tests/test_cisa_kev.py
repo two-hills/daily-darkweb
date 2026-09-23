@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import date
 
 import httpx
 import pytest
@@ -10,6 +11,7 @@ from daily_darkweb.collectors.cisa_kev import CisaKevCollector
 from daily_darkweb.core.models import CollectionStatus
 
 URL = "https://kev.test.invalid/feed.json"
+SINCE = date(2026, 7, 1)
 
 RECENT_VULN = {
     "cveID": "CVE-2026-1234",
@@ -25,6 +27,9 @@ RECENT_VULN = {
 }
 
 OLD_VULN = dict(RECENT_VULN, cveID="CVE-2020-0001", dateAdded="2020-01-01")
+UNDATED_VULN = {k: v for k, v in RECENT_VULN.items() if k != "dateAdded"} | {
+    "cveID": "CVE-2026-9999"
+}
 
 
 @pytest.fixture
@@ -33,13 +38,17 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield c
 
 
-def make_collector(client: httpx.AsyncClient, recent_days: int = 30) -> CisaKevCollector:
-    return CisaKevCollector(client, feed_url=URL, timeout_seconds=1.0, recent_days=recent_days)
+def make_collector(
+    client: httpx.AsyncClient, since: date = SINCE, max_items: int = 200
+) -> CisaKevCollector:
+    return CisaKevCollector(
+        client, since=since, feed_url=URL, timeout_seconds=1.0, max_items=max_items
+    )
 
 
 @respx.mock
-async def test_maps_recent_entries_only(client: httpx.AsyncClient) -> None:
-    respx.get(URL).respond(json={"vulnerabilities": [RECENT_VULN, OLD_VULN]})
+async def test_maps_entries_in_window_only(client: httpx.AsyncClient) -> None:
+    respx.get(URL).respond(json={"vulnerabilities": [RECENT_VULN, OLD_VULN, UNDATED_VULN]})
     result = await make_collector(client).collect()
     assert result.status is CollectionStatus.OK
     assert len(result.items) == 1
@@ -52,6 +61,42 @@ async def test_maps_recent_entries_only(client: httpx.AsyncClient) -> None:
     assert item.published_at is not None
     assert item.due_date is not None
     assert item.due_date.date().isoformat() == "2026-07-29"
+
+
+@respx.mock
+async def test_since_is_inclusive(client: httpx.AsyncClient) -> None:
+    boundary = dict(RECENT_VULN, cveID="CVE-2026-0700", dateAdded=SINCE.isoformat())
+    respx.get(URL).respond(json={"vulnerabilities": [boundary]})
+    result = await make_collector(client).collect()
+    assert result.status is CollectionStatus.OK
+    assert [i.external_id for i in result.items] == ["CVE-2026-0700"]
+
+
+@respx.mock
+async def test_wider_window_recovers_older_entries(client: httpx.AsyncClient) -> None:
+    """The sparse-run case: entries outside the default window are picked up when the
+    caller passes a `since` stretched back to the last successful run."""
+    gap_vuln = dict(RECENT_VULN, cveID="CVE-2026-73570", dateAdded="2026-08-19")
+    respx.get(URL).respond(json={"vulnerabilities": [gap_vuln]})
+
+    narrow = await make_collector(client, since=date(2026, 8, 24)).collect()
+    assert narrow.status is CollectionStatus.OK
+    assert narrow.items == []
+
+    wide = await make_collector(client, since=date(2026, 8, 18)).collect()
+    assert wide.status is CollectionStatus.OK
+    assert [i.external_id for i in wide.items] == ["CVE-2026-73570"]
+
+
+@respx.mock
+async def test_max_items_keeps_newest_entries(client: httpx.AsyncClient) -> None:
+    feed = [
+        dict(RECENT_VULN, cveID=f"CVE-2026-000{i}", dateAdded=f"2026-07-1{i}") for i in (1, 3, 2)
+    ]
+    respx.get(URL).respond(json={"vulnerabilities": feed})
+    result = await make_collector(client, max_items=2).collect()
+    assert result.status is CollectionStatus.OK
+    assert [i.external_id for i in result.items] == ["CVE-2026-0003", "CVE-2026-0002"]
 
 
 @respx.mock

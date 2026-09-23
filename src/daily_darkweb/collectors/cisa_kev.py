@@ -1,13 +1,14 @@
 """CISA Known Exploited Vulnerabilities adapter.
 
 Every entry is a vulnerability with confirmed in-the-wild exploitation — the highest-value
-free "fix this first" signal. Only recently added entries are emitted; the seen-state
+free "fix this first" signal. Only entries added on/after the caller-supplied `since` date
+are emitted; the CLI widens that window to cover gaps between runs, and the seen-state
 filter handles repeats across runs.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 import httpx
 import structlog
@@ -40,17 +41,18 @@ class CisaKevCollector:
     def __init__(
         self,
         client: httpx.AsyncClient,
+        *,
+        since: date,
         feed_url: str = (
             "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
         ),
         timeout_seconds: float = 30.0,
-        recent_days: int = 30,
         max_items: int = 200,
     ) -> None:
         self._client = client
         self._feed_url = feed_url
         self._timeout = timeout_seconds
-        self._recent_days = recent_days
+        self._since = since
         self._max_items = max_items
 
     async def collect(self) -> CollectResult:
@@ -73,8 +75,7 @@ class CisaKevCollector:
             )
 
         fetched_at = datetime.now(UTC)
-        cutoff = fetched_at.date() - timedelta(days=self._recent_days)
-        items: list[RawItem] = []
+        in_window: list[tuple[date, _KevRecord]] = []
         skipped = 0
         for raw in vulnerabilities:
             try:
@@ -82,11 +83,14 @@ class CisaKevCollector:
             except ValidationError:
                 skipped += 1
                 continue
-            if record.date_added is None or record.date_added < cutoff:
+            if record.date_added is None or record.date_added < self._since:
                 continue
-            items.append(self._to_item(record, fetched_at))
-            if len(items) >= self._max_items:
-                break
+            in_window.append((record.date_added, record))
+
+        # Newest first before truncating: on a wide catch-up window, max_items must drop
+        # the oldest entries, never the most recent (and most actionable) ones.
+        in_window.sort(key=lambda pair: pair[0], reverse=True)
+        items = [self._to_item(record, fetched_at) for _, record in in_window[: self._max_items]]
 
         if not items and skipped == len(vulnerabilities) and skipped:
             return CollectResult(

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
+import math
 import smtplib
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from daily_darkweb.collectors.base import Collector
 from daily_darkweb.collectors.cisa_kev import CisaKevCollector
@@ -28,9 +28,53 @@ from daily_darkweb.interface.render_html import render_html
 from daily_darkweb.orchestration.pipeline import run_pipeline
 
 _MAX_SEEN_KEYS = 50_000
+# Cap on gap-derived lookback growth: KEV is a small feed and max_items bounds output,
+# but an unbounded window would degenerate into re-reading the whole catalog forever.
+_MAX_LOOKBACK_DAYS = 365
 
 
-def _build_collectors(sources: SourcesConfig, client: httpx.AsyncClient) -> list[Collector]:
+class _State(BaseModel):
+    """Contents of the state file. `last_success` is the timestamp of the last run with
+    zero collector failures; date-window collectors stretch their lookback to cover the
+    gap since then, so idle spells or broken runs never become silent all-clears.
+    """
+
+    seen: list[str] = Field(default_factory=list)
+    last_success: datetime | None = None
+
+
+def _load_state(path: Path) -> _State:
+    if not path.exists():
+        return _State()
+    return _State.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _save_state(path: Path, previous: _State, report: Report, now: datetime) -> None:
+    new_keys = [dedup_key(a.item) for a in report.alerts + report.observations]
+    merged = (previous.seen + new_keys)[-_MAX_SEEN_KEYS:]
+    # A failed collector means this window wasn't fully covered: keep the old timestamp
+    # so the next run reaches back past the failure instead of treating it as covered.
+    last_success = previous.last_success if report.has_failures else now
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        _State(seen=merged, last_success=last_success).model_dump_json(), encoding="utf-8"
+    )
+
+
+def _effective_recent_days(configured: int, last_success: datetime | None, now: datetime) -> int:
+    """Lookback that always covers the span since the last fully-successful run, so KEV
+    entries added while the pipeline wasn't running still get reported. `configured` is
+    the floor; the gap-derived stretch is capped at _MAX_LOOKBACK_DAYS.
+    """
+    if last_success is None:
+        return configured
+    gap_days = math.ceil((now - last_success).total_seconds() / 86400)
+    return max(configured, min(gap_days, _MAX_LOOKBACK_DAYS))
+
+
+def _build_collectors(
+    sources: SourcesConfig, client: httpx.AsyncClient, *, kev_since: date
+) -> list[Collector]:
     collectors: list[Collector] = []
     if sources.ransomware_live.enabled:
         collectors.append(
@@ -45,27 +89,13 @@ def _build_collectors(sources: SourcesConfig, client: httpx.AsyncClient) -> list
         collectors.append(
             CisaKevCollector(
                 client,
+                since=kev_since,
                 feed_url=sources.cisa_kev.feed_url,
                 timeout_seconds=sources.cisa_kev.timeout_seconds,
-                recent_days=sources.cisa_kev.recent_days,
                 max_items=sources.cisa_kev.max_items,
             )
         )
     return collectors
-
-
-def _load_seen(path: Path) -> frozenset[str]:
-    if not path.exists():
-        return frozenset()
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return frozenset(str(k) for k in data.get("seen", []))
-
-
-def _save_seen(path: Path, seen: frozenset[str], report: Report) -> None:
-    new_keys = [dedup_key(a.item) for a in report.alerts + report.observations]
-    merged = (list(seen) + new_keys)[-_MAX_SEEN_KEYS:]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"seen": merged}), encoding="utf-8")
 
 
 def _maybe_send_email(report: Report, html_body: str) -> None:
@@ -88,22 +118,32 @@ def _maybe_send_email(report: Report, html_body: str) -> None:
         print(f"email: send failed ({type(exc).__name__}: {exc})", file=sys.stderr)
 
 
-async def _run(args: argparse.Namespace) -> int:
+async def _run(args: argparse.Namespace, now: datetime | None = None) -> int:
+    now = now or datetime.now(UTC)
     config_dir = Path(args.config_dir)
     watchlist = load_watchlist(config_dir / "watchlist.yaml")
     sources = load_sources(config_dir / "sources.yaml")
 
     state_path = Path(args.state)
-    seen = frozenset() if args.no_state else _load_seen(state_path)
+    state = _State() if args.no_state else _load_state(state_path)
+
+    recent_days = _effective_recent_days(sources.cisa_kev.recent_days, state.last_success, now)
+    if recent_days > sources.cisa_kev.recent_days and state.last_success is not None:
+        print(
+            f"cisa_kev: widening lookback to {recent_days}d to cover the gap since the "
+            f"last successful run ({state.last_success.date().isoformat()}).",
+            file=sys.stderr,
+        )
+    kev_since = now.date() - timedelta(days=recent_days)
 
     async with httpx.AsyncClient(
         headers={"User-Agent": "daily-darkweb/0.1 (defensive CTI research)"}
     ) as client:
-        collectors = _build_collectors(sources, client)
+        collectors = _build_collectors(sources, client, kev_since=kev_since)
         if not collectors:
             print("No collectors enabled; nothing to do.", file=sys.stderr)
             return 2
-        report = await run_pipeline(collectors, watchlist, seen, now=datetime.now(UTC))
+        report = await run_pipeline(collectors, watchlist, frozenset(state.seen), now=now)
 
     html_body: str | None = None
     if args.format == "html" or args.html_out or args.email:
@@ -125,7 +165,7 @@ async def _run(args: argparse.Namespace) -> int:
         _maybe_send_email(report, html_body or render_html(report))
 
     if not args.no_state:
-        _save_seen(state_path, seen, report)
+        _save_state(state_path, state, report, now)
 
     # Fail-closed exit codes: alerts and collection failures must be visible to schedulers.
     if report.has_failures:

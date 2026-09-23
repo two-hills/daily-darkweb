@@ -6,7 +6,8 @@ ransomware_live:
 
 cisa_kev:
   enabled: true
-  recent_days: 30     # first run backfills this window; afterwards seen-state dedupes
+  recent_days: 30     # minimum lookback; auto-widened to cover gaps since the last
+                      # successful run (capped at 365d) so idle spells miss nothing
   max_items: 200
 
 # Gated: enabling this raises a config error until the project has documented
