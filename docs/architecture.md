@@ -48,7 +48,12 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 - **Outbound safety:** collectors call only configured base URLs; per-call timeouts;
   retries on 429/5xx/timeouts only (honoring Retry-After, capped); auth/validation 4xx
   never retried; result sets bounded by `max_items`.
-- **State:** `.state/seen.json` holds only dedup hashes, capped at 50k keys.
+- **State:** `.state/seen.json` holds only dedup hashes (capped at 50k keys) plus
+  `last_success`, the timestamp of the last run with zero collector failures. The CLI
+  stretches the KEV lookback window to `max(recent_days, days since last_success)`
+  (capped at 365d), so a pipeline that sat idle — or failed — for longer than the
+  configured window still reports everything added in between instead of silently
+  skipping it. Failed runs never advance the timestamp.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
