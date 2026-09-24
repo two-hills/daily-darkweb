@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
-from daily_darkweb.core.models import Alert, CollectionStatus, Report
-from daily_darkweb.interface.digest_view import TOP_OBSERVATIONS, build_view
+from daily_darkweb.core.models import Alert, CollectionStatus, CountDelta, Report, Trends
+from daily_darkweb.core.trends import DUE_SOON_DAYS
+from daily_darkweb.interface.digest_view import (
+    AI_NOTES_DISCLAIMER,
+    AI_NOTES_TITLE,
+    TOP_OBSERVATIONS,
+    build_view,
+    format_delta,
+    history_note,
+)
 
 
 def render_markdown(report: Report) -> str:
@@ -20,6 +28,10 @@ def render_markdown(report: Report) -> str:
                 f"all-clear** ({result.error})"
             )
     lines.append("")
+
+    lines.extend(_render_notes(report))
+    if report.trends:
+        lines.extend(_render_trends(report.trends))
 
     lines.append(f"## Watchlist alerts ({len(view.alerts)})")
     if view.alerts:
@@ -70,6 +82,52 @@ def _render_alert(alert: Alert) -> list[str]:
         lines.append(f"- Reference: {alert.item.reference_url}")
     lines.append("")
     return lines
+
+
+def _render_notes(report: Report) -> list[str]:
+    if report.analyst_notes is None and report.analyst_notes_unavailable is None:
+        return []
+    lines = [f"## {AI_NOTES_TITLE} (AI generated)", f"_{AI_NOTES_DISCLAIMER}_", ""]
+    notes = report.analyst_notes
+    if notes is None:
+        lines.extend([f"Unavailable for this run: {report.analyst_notes_unavailable}.", ""])
+        return lines
+    lines.append(f"**{notes.headline}**")
+    lines.extend(f"- {point}" for point in notes.points)
+    for heading, entries in (("Recommended actions", notes.actions), ("Caveats", notes.caveats)):
+        if entries:
+            lines.extend(["", f"{heading}:"])
+            lines.extend(f"- {entry}" for entry in entries)
+    lines.append("")
+    return lines
+
+
+def _render_trends(trends: Trends) -> list[str]:
+    lines = [
+        f"## Trends (last {trends.window_days} days)",
+        f"- Ransomware claims: {format_delta(trends.ransomware_claims)}",
+        f"- Most active groups: {_deltas(trends.top_groups)}",
+    ]
+    if trends.new_groups:
+        lines.append(f"- New groups this window: {', '.join(trends.new_groups)}")
+    lines.append(f"- Most hit sectors: {_deltas(trends.top_sectors)}")
+    lines.append(f"- Most hit countries: {_deltas(trends.top_countries)}")
+    watch = f"- Watchlist countries: {format_delta(trends.watch_countries)}"
+    if trends.watch_country_breakdown:
+        watch += f" — {_deltas(trends.watch_country_breakdown)}"
+    lines.append(watch)
+    lines.append(f"- CISA KEV additions: {format_delta(trends.kev_added)}")
+    if trends.kev_due_soon:
+        due = ", ".join(f"{e.cve_id} (due {e.due_date})" for e in trends.kev_due_soon)
+        lines.append(f"- KEV deadlines in the next {DUE_SOON_DAYS} days: {due}")
+    lines.extend([f"- {history_note(trends)}", ""])
+    return lines
+
+
+def _deltas(deltas: list[CountDelta]) -> str:
+    if not deltas:
+        return "n/a"
+    return ", ".join(f"{d.name} {format_delta(d)}" for d in deltas)
 
 
 def _top(pairs: list[tuple[str, int]]) -> str:

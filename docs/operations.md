@@ -62,8 +62,36 @@ archived files — email is a convenience channel, not the source of truth.
   `uv`, shell error) — no digest was produced. It is deliberately *not* 1: launchd would
   otherwise record a dead runner as an ordinary alerting day.
 - Runner/launchd logs: `~/Library/Logs/daily-darkweb.log` / `.err.log`.
-- Seen-state lives in `.state/seen.json` (machine-local, gitignored). First run on a
-  new machine backfills the KEV 30-day window — that is expected, not a bug.
+- Seen-state lives in `.state/seen.json`: seen-item hashes, `last_success`, and the
+  per-day `history` behind the digest's Trends section. It is tracked on `main` so cloud
+  runs persist it (see below). First run on a new machine backfills the KEV 30-day
+  window — that is expected, not a bug.
+
+## Cloud Routine (claude.ai)
+
+The digest also runs as a daily cloud Routine (claude.ai/code/routines). Its
+instructions live in [`ops/routine_prompt.md`](../ops/routine_prompt.md) — after
+editing that file, paste it into the Routine again (replacing `<RECIPIENT_EMAIL>`).
+
+Prerequisites, each learned from a failed run:
+
+- **Network:** the Routine's environment must allow the collector hosts. With the
+  default *Trusted* access they fail with `ProxyError: 403`. Set Network access to
+  *Custom*, add `api.ransomware.live` and `www.cisa.gov`, and keep *Also include default
+  list of common package managers* ticked (uv needs PyPI). New collectors need their
+  API host added too.
+- **GitHub push:** the Routine commits `.state/seen.json` to `main`. That needs the
+  Claude GitHub App installed on this repository — a public repo clones without it, but
+  every push is rejected with 403.
+- **Email:** SMTP cannot work in the cloud (no raw-TCP egress), so the Routine sends the
+  HTML digest with the Gmail connector: HTML body plus the same file attached (skipped
+  above 25 KB). It emails every run, clean ones included, so a missing email always
+  means the run itself failed.
+- **AI analyst notes:** the Routine collects with `--report-out`, writes
+  `digests/notes.json` from the digest, then re-renders with
+  `--from-report … --notes …` (no re-collection, state untouched). The notes are
+  validated (no links, bounded size) and labelled "AI generated"; rejected notes show
+  as "unavailable" rather than blocking the digest.
 
 ## Change the schedule / uninstall
 

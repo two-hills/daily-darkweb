@@ -1,6 +1,20 @@
 # Roadmap
 
-**Current status (2026-09-23):** Phase 1 + 2 core collectors done. Fixed a second real
+**Current status (2026-09-24):** Running daily as a claude.ai cloud Routine (prompt in
+`ops/routine_prompt.md`; setup lessons in docs/operations.md): the environment needed
+`api.ransomware.live` + `www.cisa.gov` allowlisted, the Claude GitHub App for the state
+push, and the Gmail connector for HTML email because SMTP cannot egress from the cloud.
+New: per-day `history` in the state file and a deterministic Trends section
+(`core/trends.py`: week-over-week once 14 days exist, new groups, watchlist-country
+share, KEV deadlines in the next 7 days), plus **AI analyst notes** — the Routine's
+model writes `notes.json` from the finished digest; the CLI validates it (strict schema,
+no links), and renders it escaped and labelled "AI generated" via
+`--report-out` / `--from-report` / `--notes`. ransomware.live's own `[AI generated]`
+descriptions get a badge. Watchlist now covers Check Point, breach terms, and APJC.
+123 tests green. Next: structlog to stderr (log lines currently pollute stdout on
+collector failure), then LLM alert ranking.
+
+**Previous status (2026-09-23):** Phase 1 + 2 core collectors done. Fixed a second real
 KEV coverage gap: the collector filtered on a fixed `recent_days: 30` window anchored to
 "now", so a pipeline idle longer than that (last run 2026-08-18 → next 2026-09-23)
 silently never reported entries added in between (verified misses: CVE-2026-73570
@@ -48,8 +62,14 @@ Next: LLM triage agent, then paste/GitHub leak watch.
       exit code)
 - [ ] HIBP domain-search collector — **deferred**: requires owned+verified domains and
       an `HIBP_API_KEY`; revisit if the user ever has domains to protect
-- [ ] LLM triage agent: summarize/rank alerts; wrapped data blocks; pydantic
-      parse-or-reject with one bounded repair retry; prompt-injection tests
+- [x] Daily history + Trends section (`core/trends.py`, state `history` capped at 60
+      days; comparisons only once history spans both windows)
+- [x] AI analyst notes (summarize half of LLM triage): produced by the cloud Routine's
+      model from the finished digest; `AnalystNotes` parse-or-reject (bounded, no
+      links), one repair retry in the Routine prompt, escaped + labelled "AI generated",
+      fail-soft ("unavailable"), never feeds scoring or exit codes
+- [ ] LLM triage agent, rank half: re-rank alerts; wrapped data blocks; prompt-injection
+      tests
 - [ ] Semaphore-bounded collector concurrency + per-source rate limits
 
 ## Phase 3 — operations
