@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,6 +13,7 @@ from daily_darkweb.core.models import (
     Alert,
     CollectionStatus,
     CollectResult,
+    DailySummary,
     Report,
     Severity,
 )
@@ -143,6 +144,9 @@ def _make_args(tmp_path: Path) -> argparse.Namespace:
         format="json",
         html_out=None,
         email=False,
+        report_out=None,
+        from_report=None,
+        notes=None,
     )
 
 
@@ -212,3 +216,124 @@ async def test_failed_collection_does_not_advance_last_success(
     assert saved.last_success == earlier
     assert saved.seen == ["old-key"]
     capsys.readouterr()
+
+
+class TestHistoryState:
+    def test_state_without_history_loads_with_empty_history(self, tmp_path: Path) -> None:
+        path = tmp_path / "seen.json"
+        path.write_text(json.dumps({"seen": ["k"], "last_success": None}), encoding="utf-8")
+        assert _load_state(path).history == []
+
+    def test_save_without_new_history_keeps_previous(self, tmp_path: Path) -> None:
+        path = tmp_path / "seen.json"
+        old = [DailySummary(day=date(2026, 9, 20), ransomware_claims=3)]
+        _save_state(path, _State(history=old), _ok_report(), NOW)
+        assert _load_state(path).history == old
+
+
+RECENT_VULN = {
+    **GAP_VULN,
+    "cveID": "CVE-2026-80001",
+    "dateAdded": "2026-09-22",
+    "dueDate": "2026-09-25",
+}
+
+
+@respx.mock
+async def test_collect_run_saves_history_and_attaches_trends(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path / "config")
+    state_path = _write_state(tmp_path, _State(last_success=NOW - timedelta(days=1)))
+    respx.get(FEED_URL).respond(json={"vulnerabilities": [RECENT_VULN]})
+
+    exit_code = await _run(_make_args(tmp_path), now=NOW)
+
+    report = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert report["trends"]["kev_added"]["current"] == 1
+    assert report["trends"]["kev_due_soon"][0]["cve_id"] == "CVE-2026-80001"
+    saved = _load_state(state_path)
+    assert [s.day for s in saved.history] == [NOW.date()]
+    assert saved.history[0].kev_added[0].cve_id == "CVE-2026-80001"
+
+
+@respx.mock
+async def test_notes_are_added_by_re_rendering_a_saved_report_offline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Routine flow: collect once with --report-out, let the model write notes, then
+    re-render with --from-report --notes. The re-render must not collect or touch state."""
+    _write_config(tmp_path / "config")
+    state_path = _write_state(tmp_path, _State(last_success=NOW - timedelta(days=1)))
+    respx.get(FEED_URL).respond(json={"vulnerabilities": [RECENT_VULN]})
+    report_path = tmp_path / "out" / "report.json"
+    collect_args = _make_args(tmp_path)
+    collect_args.report_out = str(report_path)
+    assert await _run(collect_args, now=NOW) == 0
+    capsys.readouterr()
+    state_before = state_path.read_bytes()
+    calls_before = respx.calls.call_count
+
+    notes_path = tmp_path / "notes.json"
+    notes_path.write_text(
+        json.dumps({"headline": "Quiet day", "points": ["One new KEV entry."]}), encoding="utf-8"
+    )
+    render_args = _make_args(tmp_path)
+    render_args.from_report = str(report_path)
+    render_args.notes = str(notes_path)
+    render_args.format = "md"
+    render_args.html_out = str(tmp_path / "out" / "digest.html")
+    exit_code = await _run(render_args, now=NOW + timedelta(hours=1))
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "## AI analyst notes (AI generated)" in out
+    assert "**Quiet day**" in out
+    assert "## Trends (last 7 days)" in out  # trends survive the JSON round trip
+    assert "CVE-2026-80001" in out
+    assert "badge-ai'>AI generated" in (tmp_path / "out" / "digest.html").read_text("utf-8")
+    assert respx.calls.call_count == calls_before  # no network on re-render
+    assert state_path.read_bytes() == state_before  # state untouched
+
+
+async def test_invalid_notes_render_as_unavailable_and_keep_exit_code(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report_path = tmp_path / "report.json"
+    report_path.write_text(_failed_report().model_dump_json(), encoding="utf-8")
+    notes_path = tmp_path / "notes.json"
+    notes_path.write_text(
+        json.dumps({"headline": "h", "points": ["see https://evil.example/login"]}),
+        encoding="utf-8",
+    )
+    args = _make_args(tmp_path)
+    args.from_report = str(report_path)
+    args.notes = str(notes_path)
+    args.format = "md"
+
+    exit_code = await _run(args, now=NOW)
+
+    captured = capsys.readouterr()
+    assert exit_code == 3  # the saved run's collector failure still fails closed
+    assert "Unavailable for this run: notes failed validation." in captured.out
+    assert "evil.example" not in captured.out
+    assert "links are not allowed" in captured.err
+
+
+async def test_missing_notes_file_is_reported_not_fatal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report_path = tmp_path / "report.json"
+    report_path.write_text(_ok_report().model_dump_json(), encoding="utf-8")
+    args = _make_args(tmp_path)
+    args.from_report = str(report_path)
+    args.notes = str(tmp_path / "absent.json")
+    args.format = "md"
+
+    exit_code = await _run(args, now=NOW)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Unavailable for this run: notes file missing or unreadable." in captured.out
+    assert "notes: cannot read" in captured.err

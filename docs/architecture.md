@@ -14,7 +14,7 @@ interface (cli, digest_view, render_md/html, state file)  I/O allowed
     └── orchestration (pipeline)         async fan-out over collectors
             ├── collectors (adapters)    network I/O, per-call timeout, retry
             └── core (models, matching,  PURE: no I/O, no network, no AI,
-                 scoring, dedup)         `now` always passed in
+                 scoring, dedup, trends) `now` always passed in
 ```
 
 `interface/digest_view.py` is a format-agnostic view model shared by both renderers: it
@@ -53,7 +53,19 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   stretches the KEV lookback window to `max(recent_days, days since last_success)`
   (capped at 365d), so a pipeline that sat idle — or failed — for longer than the
   configured window still reports everything added in between instead of silently
-  skipping it. Failed runs never advance the timestamp.
+  skipping it. Failed runs never advance the timestamp. It also keeps `history`: one
+  compact per-day summary (counts per group/sector/country, KEV additions with due
+  dates; 60 days) from which `core/trends.py` computes the digest's Trends section —
+  week-over-week comparisons only once history spans both windows (14 days).
+- **AI analyst notes are untrusted output, never logic.** An optional model (the cloud
+  Routine's session) reads the finished digest and writes `notes.json`; the CLI re-renders
+  a saved report with it (`--report-out` → `--from-report … --notes …`, no re-collection,
+  state untouched). `AnalystNotes` is a strict schema (bounded sizes, extra keys
+  forbidden) that **refuses links**, so injected scraped content can't turn the notes
+  into a phishing vector. Notes are HTML-escaped, labelled "AI generated — may be
+  wrong", and never feed matching, scoring or exit codes; a missing or rejected file
+  renders as "unavailable" instead of blocking the digest. Source text a feed marks
+  `[AI generated]` (ransomware.live descriptions) gets a visible badge too.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
@@ -75,7 +87,7 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 | ransomware_live | ransomware DLS victim claims | live |
 | cisa_kev | confirmed exploited-in-the-wild CVEs | live |
 | Paste/GitHub leak watch | brand/asset mentions | planned |
-| LLM triage agent | summarize/rank alerts (wrapped data, parse-or-reject) | planned |
+| LLM triage agent | summarize/rank alerts (wrapped data, parse-or-reject) | notes live via cloud Routine; ranking planned |
 | HaveIBeenPwned | breach exposure for owned domains | deferred (needs owned domains + key) |
 | tor_onion | direct DLS mirrors | gated until legal approval |
 

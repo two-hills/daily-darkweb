@@ -6,6 +6,8 @@ keywords:           # technologies & topics to prioritize (drives HIGH alerts on
   - "cisco"
   - "fortinet"
   - "palo alto"
+  - "check point"   # CISA KEV spells the vendor as two words
+  - "checkpoint"
   - "vpn"
   - "firewall"
   - "vmware"
@@ -13,9 +15,41 @@ keywords:           # technologies & topics to prioritize (drives HIGH alerts on
   - "exchange"
   - "active directory"
   - "ransomware"
+  - "breach"        # word-boundary match: inflections must be listed explicitly
+  - "breached"
+  - "breaches"
 sectors:            # sectors of interest (substring match vs source sector labels)
   - "Healthcare"
   - "Financial"
-countries:          # ISO country codes of interest
+countries:          # ISO country codes of interest: APJC (Asia Pacific, Japan, China)
+  # Greater China, Japan, Korea
+  - "CN"
+  - "HK"
+  - "MO"
+  - "TW"
+  - "JP"
+  - "KR"
+  # ASEAN
   - "TH"
   - "SG"
+  - "MY"
+  - "ID"
+  - "PH"
+  - "VN"
+  - "KH"
+  - "LA"
+  - "MM"
+  - "BN"
+  - "TL"
+  # Australia, New Zealand, Pacific
+  - "AU"
+  - "NZ"
+  - "FJ"
+  - "PG"
+  # India and South Asia
+  - "IN"
+  - "BD"
+  - "LK"
+  - "NP"
+  - "BT"
+  - "MV"

@@ -5,6 +5,7 @@ import asyncio
 import math
 import smtplib
 import sys
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -16,7 +17,8 @@ from daily_darkweb.collectors.cisa_kev import CisaKevCollector
 from daily_darkweb.collectors.ransomware_live import RansomwareLiveCollector
 from daily_darkweb.config import SourcesConfig, load_sources, load_watchlist
 from daily_darkweb.core.dedup import dedup_key
-from daily_darkweb.core.models import Report
+from daily_darkweb.core.models import AnalystNotes, DailySummary, Report
+from daily_darkweb.core.trends import compute_trends, merge_history, summarize
 from daily_darkweb.interface.email_send import (
     EmailConfig,
     build_message,
@@ -37,10 +39,22 @@ class _State(BaseModel):
     """Contents of the state file. `last_success` is the timestamp of the last run with
     zero collector failures; date-window collectors stretch their lookback to cover the
     gap since then, so idle spells or broken runs never become silent all-clears.
+    `history` holds one compact summary per run day, the input for trend statistics.
     """
 
     seen: list[str] = Field(default_factory=list)
     last_success: datetime | None = None
+    history: list[DailySummary] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _PendingState:
+    """State to persist once the digest has been emitted: saving before output could mark
+    items as seen that the reader never got to see."""
+
+    path: Path
+    previous: _State
+    history: list[DailySummary]
 
 
 def _load_state(path: Path) -> _State:
@@ -49,16 +63,25 @@ def _load_state(path: Path) -> _State:
     return _State.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def _save_state(path: Path, previous: _State, report: Report, now: datetime) -> None:
+def _save_state(
+    path: Path,
+    previous: _State,
+    report: Report,
+    now: datetime,
+    history: list[DailySummary] | None = None,
+) -> None:
     new_keys = [dedup_key(a.item) for a in report.alerts + report.observations]
     merged = (previous.seen + new_keys)[-_MAX_SEEN_KEYS:]
     # A failed collector means this window wasn't fully covered: keep the old timestamp
     # so the next run reaches back past the failure instead of treating it as covered.
     last_success = previous.last_success if report.has_failures else now
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        _State(seen=merged, last_success=last_success).model_dump_json(), encoding="utf-8"
+    state = _State(
+        seen=merged,
+        last_success=last_success,
+        history=previous.history if history is None else history,
     )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(state.model_dump_json(), encoding="utf-8")
 
 
 def _effective_recent_days(configured: int, last_success: datetime | None, now: datetime) -> int:
@@ -118,8 +141,10 @@ def _maybe_send_email(report: Report, html_body: str) -> None:
         print(f"email: send failed ({type(exc).__name__}: {exc})", file=sys.stderr)
 
 
-async def _run(args: argparse.Namespace, now: datetime | None = None) -> int:
-    now = now or datetime.now(UTC)
+async def _collect(
+    args: argparse.Namespace, now: datetime
+) -> tuple[Report, _PendingState | None] | None:
+    """Run the collectors and attach trends. Returns None when nothing is enabled."""
     config_dir = Path(args.config_dir)
     watchlist = load_watchlist(config_dir / "watchlist.yaml")
     sources = load_sources(config_dir / "sources.yaml")
@@ -142,9 +167,36 @@ async def _run(args: argparse.Namespace, now: datetime | None = None) -> int:
         collectors = _build_collectors(sources, client, kev_since=kev_since)
         if not collectors:
             print("No collectors enabled; nothing to do.", file=sys.stderr)
-            return 2
+            return None
         report = await run_pipeline(collectors, watchlist, frozenset(state.seen), now=now)
 
+    history = merge_history(state.history, summarize(report, now.date()))
+    trends = compute_trends(history, now.date(), watchlist.countries)
+    report = report.model_copy(update={"trends": trends})
+    pending = None if args.no_state else _PendingState(state_path, state, history)
+    return report, pending
+
+
+def _attach_notes(report: Report, path: Path) -> Report:
+    """AI notes are optional: a missing or invalid file never blocks the digest. It is
+    shown as unavailable instead, with the details on stderr for whoever wrote it."""
+    try:
+        notes = AnalystNotes.model_validate_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"notes: cannot read {path} ({type(exc).__name__})", file=sys.stderr)
+        reason = "notes file missing or unreadable"
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(map(str, e['loc'])) or 'notes'}: {e['msg']}" for e in exc.errors()
+        )
+        print(f"notes: rejected, fix and re-render: {details}", file=sys.stderr)
+        reason = "notes failed validation"
+    else:
+        return report.model_copy(update={"analyst_notes": notes, "analyst_notes_unavailable": None})
+    return report.model_copy(update={"analyst_notes": None, "analyst_notes_unavailable": reason})
+
+
+def _emit(report: Report, args: argparse.Namespace) -> None:
     html_body: str | None = None
     if args.format == "html" or args.html_out or args.email:
         html_body = render_html(report)
@@ -161,11 +213,34 @@ async def _run(args: argparse.Namespace, now: datetime | None = None) -> int:
         html_path.parent.mkdir(parents=True, exist_ok=True)
         html_path.write_text(html_body or render_html(report), encoding="utf-8")
 
+    if args.report_out:
+        report_path = Path(args.report_out)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report.model_dump_json(), encoding="utf-8")
+
     if args.email:
         _maybe_send_email(report, html_body or render_html(report))
 
-    if not args.no_state:
-        _save_state(state_path, state, report, now)
+
+async def _run(args: argparse.Namespace, now: datetime | None = None) -> int:
+    now = now or datetime.now(UTC)
+    pending: _PendingState | None = None
+    if args.from_report:
+        # Re-render a saved run (e.g. to add AI notes): no network, no state change.
+        report = Report.model_validate_json(Path(args.from_report).read_text(encoding="utf-8"))
+    else:
+        collected = await _collect(args, now)
+        if collected is None:
+            return 2
+        report, pending = collected
+
+    if args.notes:
+        report = _attach_notes(report, Path(args.notes))
+
+    _emit(report, args)
+
+    if pending is not None:
+        _save_state(pending.path, pending.previous, report, now, history=pending.history)
 
     # Fail-closed exit codes: alerts and collection failures must be visible to schedulers.
     if report.has_failures:
@@ -188,6 +263,21 @@ def main() -> int:
         "--email",
         action="store_true",
         help="email the digest (SMTP config from env/.env) when there are alerts or a failure",
+    )
+    parser.add_argument(
+        "--report-out", default=None, help="also save the run's report as JSON to this path"
+    )
+    parser.add_argument(
+        "--from-report",
+        default=None,
+        help="re-render a report saved with --report-out instead of collecting "
+        "(no network, state untouched)",
+    )
+    parser.add_argument(
+        "--notes",
+        default=None,
+        help="AI analyst notes JSON to include, labelled 'AI generated' (invalid: shown as "
+        "unavailable)",
     )
     args = parser.parse_args()
     return asyncio.run(_run(args))

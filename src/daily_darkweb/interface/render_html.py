@@ -2,24 +2,37 @@
 
 All scraped text is HTML-escaped before interpolation: item titles/bodies/actors/sectors
 come from untrusted external sources and must never be able to inject markup or scripts.
+AI analyst notes get the same treatment: they are model output, not trusted markup.
 """
 
 from __future__ import annotations
 
 from html import escape
 
-from daily_darkweb.core.models import Alert, CollectionStatus, Report
-from daily_darkweb.interface.digest_view import TOP_OBSERVATIONS, DigestView, build_view
+from daily_darkweb.core.models import Alert, CollectionStatus, CountDelta, Report, Trends
+from daily_darkweb.core.trends import DUE_SOON_DAYS
+from daily_darkweb.interface.digest_view import (
+    AI_NOTES_DISCLAIMER,
+    AI_NOTES_TITLE,
+    TOP_OBSERVATIONS,
+    DigestView,
+    build_view,
+    format_delta,
+    history_note,
+    split_ai_generated,
+)
 
 _STYLE = """
 :root {
   --bg: #f4f5f7; --card: #ffffff; --text: #1a1d23; --muted: #5b6270; --border: #e2e4e9;
   --crit: #b3261e; --high: #b5560a; --med: #8a6d00; --low: #2f5aa8; --info: #5b6270;
+  --ai: #6b4fbb;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14161a; --card: #1d2026; --text: #e8e9ec; --muted: #9aa0ab; --border: #2c2f36;
     --crit: #ff6b60; --high: #ff9f43; --med: #e0c229; --low: #6fa8ff; --info: #9aa0ab;
+    --ai: #b39dff;
   }
 }
 * { box-sizing: border-box; }
@@ -60,6 +73,16 @@ h2 {
 .stats { color: var(--muted); font-size: 13px; margin: 4px 0; }
 ul.plain { list-style: none; padding: 0; margin: 8px 0; }
 ul.plain li { padding: 4px 0; font-size: 13.5px; border-bottom: 1px dotted var(--border); }
+.badge-ai { background: var(--ai); }
+.ai-notes {
+  background: var(--card); border: 1px dashed var(--ai); border-radius: 10px;
+  padding: 4px 16px 12px; margin-top: 24px;
+}
+.ai-notes h2 { border-bottom: none; margin-top: 12px; }
+.ai-headline { font-weight: 600; margin: 8px 0; }
+.ai-subhead { color: var(--muted); font-size: 13px; font-weight: 600; margin: 12px 0 0; }
+.ai-notes ul { margin: 6px 0; padding-left: 20px; font-size: 14px; }
+.source-ai { font-style: italic; }
 """
 
 
@@ -76,6 +99,8 @@ def render_html(report: Report) -> str:
         f"<style>{_STYLE}</style></head><body><main>",
         header,
         _render_collector_status(report),
+        _render_notes(report),
+        _render_trends(report.trends) if report.trends else "",
         _render_alert_section(
             "Watchlist alerts",
             "Signals matching your interests in config/watchlist.yaml.",
@@ -139,9 +164,69 @@ def _render_alert_card(alert: Alert) -> str:
     if item.due_date:
         lines.append(f"<p class='meta due'>Patch by: {item.due_date:%Y-%m-%d}</p>")
     if item.body:
-        lines.append(f"<p class='meta'>{escape(item.body).replace(chr(10), '<br>')}</p>")
+        source_ai, body = split_ai_generated(item.body)
+        body_html = escape(body).replace(chr(10), "<br>")
+        if source_ai:
+            lines.append(
+                "<p class='meta source-ai'><span class='badge badge-ai'>AI-generated "
+                f"description</span>{body_html}</p>"
+            )
+        else:
+            lines.append(f"<p class='meta'>{body_html}</p>")
     lines.append("</div>")
     return "".join(lines)
+
+
+def _render_notes(report: Report) -> str:
+    if report.analyst_notes is None and report.analyst_notes_unavailable is None:
+        return ""
+    html = (
+        "<section class='ai-notes'>"
+        f"<h2>{escape(AI_NOTES_TITLE)} <span class='badge badge-ai'>AI generated</span></h2>"
+        f"<p class='section-note'>{escape(AI_NOTES_DISCLAIMER)}</p>"
+    )
+    notes = report.analyst_notes
+    if notes is None:
+        reason = escape(report.analyst_notes_unavailable or "")
+        return html + f"<p class='empty'>Unavailable for this run: {reason}.</p></section>"
+    html += f"<p class='ai-headline'>{escape(notes.headline)}</p>" + _bullets(notes.points)
+    for heading, entries in (("Recommended actions", notes.actions), ("Caveats", notes.caveats)):
+        if entries:
+            html += f"<p class='ai-subhead'>{heading}</p>" + _bullets(entries)
+    return html + "</section>"
+
+
+def _render_trends(trends: Trends) -> str:
+    stats = [
+        f"Ransomware claims: {format_delta(trends.ransomware_claims)}",
+        f"Most active groups: {_deltas(trends.top_groups)}",
+    ]
+    if trends.new_groups:
+        stats.append(f"New groups this window: {escape(', '.join(trends.new_groups))}")
+    stats.append(f"Most hit sectors: {_deltas(trends.top_sectors)}")
+    stats.append(f"Most hit countries: {_deltas(trends.top_countries)}")
+    watch = f"Watchlist countries: {format_delta(trends.watch_countries)}"
+    if trends.watch_country_breakdown:
+        watch += f" — {_deltas(trends.watch_country_breakdown)}"
+    stats.append(watch)
+    stats.append(f"CISA KEV additions: {format_delta(trends.kev_added)}")
+    if trends.kev_due_soon:
+        due = ", ".join(f"{escape(e.cve_id)} (due {e.due_date})" for e in trends.kev_due_soon)
+        label = f"KEV deadlines in the next {DUE_SOON_DAYS} days:"
+        stats.append(f"<span class='due'>{label}</span> {due}")
+    html = f"<h2>Trends (last {trends.window_days} days)</h2>"
+    html += "".join(f"<p class='stats'>{line}</p>" for line in stats)
+    return html + f"<p class='section-note'>{history_note(trends)}</p>"
+
+
+def _bullets(entries: list[str]) -> str:
+    return "<ul>" + "".join(f"<li>{escape(e)}</li>" for e in entries) + "</ul>"
+
+
+def _deltas(deltas: list[CountDelta]) -> str:
+    if not deltas:
+        return "n/a"
+    return ", ".join(f"{escape(d.name)} {format_delta(d)}" for d in deltas)
 
 
 def _render_landscape(view: DigestView) -> str:
