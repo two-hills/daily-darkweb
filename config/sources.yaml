@@ -3,6 +3,7 @@ ransomware_live:
   base_url: "https://api.ransomware.live/v2"
   timeout_seconds: 15.0
   max_items: 100
+  group_profiles: 5   # threat-actor profiles (TTPs, tools) per digest; 0 = off
 
 cisa_kev:
   enabled: true

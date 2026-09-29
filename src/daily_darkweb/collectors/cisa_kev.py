@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from daily_darkweb.collectors.base import fetch_json
 from daily_darkweb.core.models import CollectionStatus, CollectResult, RawItem
+from daily_darkweb.core.sanitize import scrub
 
 logger = structlog.get_logger()
 
@@ -115,8 +116,8 @@ class CisaKevCollector:
         return RawItem(
             source=self.name,
             external_id=record.cve_id,
-            title=f"{record.cve_id}: {record.name or 'exploited vulnerability'}",
-            body="\n".join(part for part in body_parts if part.strip()),
+            title=scrub(f"{record.cve_id}: {record.name or 'exploited vulnerability'}"),
+            body=scrub("\n".join(part for part in body_parts if part.strip())),
             fetched_at=fetched_at,
             published_at=_as_utc_datetime(record.date_added),
             due_date=_as_utc_datetime(record.due_date),

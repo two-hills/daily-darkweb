@@ -9,17 +9,34 @@ from __future__ import annotations
 
 from html import escape
 
-from daily_darkweb.core.models import Alert, CollectionStatus, CountDelta, Report, Trends
-from daily_darkweb.core.trends import DUE_SOON_DAYS
+from daily_darkweb.core.models import (
+    Alert,
+    CollectionStatus,
+    CountDelta,
+    GroupProfile,
+    RawItem,
+    Report,
+    Trends,
+)
+from daily_darkweb.core.trends import DUE_SOON_DAYS, RANSOMWARE_SOURCE
 from daily_darkweb.interface.digest_view import (
     AI_NOTES_DISCLAIMER,
     AI_NOTES_TITLE,
+    PROFILES_NOTE,
+    PROFILES_TITLE,
+    SNIPPET_LIMIT,
     TOP_OBSERVATIONS,
     DigestView,
     build_view,
+    defense_tactics,
+    detail_lines,
     format_delta,
     history_note,
-    split_ai_generated,
+    item_description,
+    profiles_by_group,
+    tactic_line,
+    tool_lines,
+    victim_context,
 )
 
 _STYLE = """
@@ -83,11 +100,16 @@ ul.plain li { padding: 4px 0; font-size: 13.5px; border-bottom: 1px dotted var(-
 .ai-subhead { color: var(--muted); font-size: 13px; font-weight: 600; margin: 12px 0 0; }
 .ai-notes ul { margin: 6px 0; padding-left: 20px; font-size: 14px; }
 .source-ai { font-style: italic; }
+.detail { font-size: 13.5px; margin: 4px 0; }
+.subhead { color: var(--muted); font-size: 13px; font-weight: 600; margin: 10px 0 0; }
+.card ul { margin: 4px 0; padding-left: 20px; font-size: 13.5px; }
+.snippet { color: var(--muted); }
 """
 
 
 def render_html(report: Report) -> str:
     view = build_view(report)
+    profiled = profiles_by_group(report)
     header = (
         "<h1>Daily Darkweb digest</h1>"
         f"<p class='subtitle'>{report.generated_at:%Y-%m-%d %H:%M} UTC</p>"
@@ -105,13 +127,16 @@ def render_html(report: Report) -> str:
             "Watchlist alerts",
             "Signals matching your interests in config/watchlist.yaml.",
             view.alerts,
+            profiled,
         ),
         _render_alert_section(
             "Vulnerability watch",
             "Every new confirmed-exploited CVE from CISA KEV, beyond your watchlist.",
             view.vulnerability_watch,
+            profiled,
         ),
         _render_landscape(view),
+        _render_profiles(report),
         "</main></body></html>",
     ]
     return "".join(parts)
@@ -133,48 +158,121 @@ def _render_collector_status(report: Report) -> str:
     return "<h2>Collector status</h2><ul class='plain'>" + "".join(rows) + "</ul>"
 
 
-def _render_alert_section(title: str, note: str, alerts: list[Alert]) -> str:
+def _render_alert_section(
+    title: str, note: str, alerts: list[Alert], profiled: dict[str, GroupProfile]
+) -> str:
     html = f"<h2>{escape(title)} ({len(alerts)})</h2><p class='section-note'>{escape(note)}</p>"
     if not alerts:
         html += "<p class='empty'>Nothing new here this run.</p>"
         return html
-    return html + "".join(_render_alert_card(a) for a in alerts)
+    return html + "".join(_render_alert_card(a, profiled) for a in alerts)
 
 
 def _link(url: str, inner_html: str) -> str:
     return f"<a href='{escape(url)}' target='_blank' rel='noopener'>{inner_html}</a>"
 
 
-def _render_alert_card(alert: Alert) -> str:
+def _backup_link(url: str) -> str:
+    return f"<p class='meta'>Reference (backup link): {_link(url, escape(url))}</p>"
+
+
+def _render_alert_card(alert: Alert, profiled: dict[str, GroupProfile]) -> str:
     item = alert.item
     badge = (
         f"<span class='badge badge-{alert.severity.value}'>"
         f"{alert.severity.value} {alert.score}</span>"
     )
-    title_html = escape(item.title)
-    if item.reference_url:
-        title_html = _link(item.reference_url, title_html)
-    lines = [f"<div class='card'><p class='card-title'>{badge}{title_html}</p>"]
+    lines = [f"<div class='card'><p class='card-title'>{badge}{escape(item.title)}</p>"]
     if alert.matches:
         matched = ", ".join(f"{m.field.value}={escape(m.watch_value)}" for m in alert.matches)
         lines.append(f"<p class='meta'>Matched: {matched}</p>")
-    published = f"{item.published_at:%Y-%m-%d}" if item.published_at else "unknown"
+    published = f"{item.published_at:%Y-%m-%d %H:%M} UTC" if item.published_at else "unknown"
     source_html = escape(item.source)
     lines.append(f"<p class='meta'>Source: <code>{source_html}</code> | published: {published}</p>")
     if item.due_date:
         lines.append(f"<p class='meta due'>Patch by: {item.due_date:%Y-%m-%d}</p>")
-    if item.body:
-        source_ai, body = split_ai_generated(item.body)
-        body_html = escape(body).replace(chr(10), "<br>")
-        if source_ai:
-            lines.append(
-                "<p class='meta source-ai'><span class='badge badge-ai'>AI-generated "
-                f"description</span>{body_html}</p>"
-            )
-        else:
-            lines.append(f"<p class='meta'>{body_html}</p>")
+    if item.source == RANSOMWARE_SOURCE:
+        lines.extend(_ransomware_details(item, profiled))
+    else:
+        lines.extend(f"<p class='detail'>{escape(line)}</p>" for line in detail_lines(item))
+    if item.reference_url:
+        lines.append(_backup_link(item.reference_url))
     lines.append("</div>")
     return "".join(lines)
+
+
+def _ransomware_details(item: RawItem, profiled: dict[str, GroupProfile]) -> list[str]:
+    lines = []
+    context = victim_context(item)
+    if context:
+        lines.append(f"<p class='detail'><b>Victim:</b> {escape(context)}</p>")
+    source_ai, description = item_description(item)
+    if description:
+        if source_ai:
+            lines.append(
+                "<p class='detail source-ai'><span class='badge badge-ai'>AI-generated "
+                f"description</span>{escape(description)}</p>"
+            )
+        else:
+            lines.append(
+                f"<p class='detail'><b>Description (unverified):</b> {escape(description)}</p>"
+            )
+    if item.actor:
+        suffix = " — profile below" if item.actor.lower() in profiled else ""
+        lines.append(f"<p class='detail'><b>Group:</b> {escape(item.actor)}{suffix}</p>")
+    return lines
+
+
+def _render_profiles(report: Report) -> str:
+    if not report.group_profiles and not report.profile_errors:
+        return ""
+    html = (
+        f"<h2>{escape(PROFILES_TITLE)} ({len(report.group_profiles)})</h2>"
+        f"<p class='section-note'>{escape(PROFILES_NOTE)}</p>"
+    )
+    for profile in report.group_profiles:
+        html += _render_profile_card(profile)
+    if report.profile_errors:
+        missing = escape(", ".join(report.profile_errors))
+        html += f"<p class='empty'>Profiles unavailable: {missing}.</p>"
+    return html
+
+
+def _render_profile_card(profile: GroupProfile) -> str:
+    parts = [f"<div class='card'><p class='card-title'>{escape(profile.name)}</p>"]
+    facts = []
+    if profile.first_seen:
+        facts.append(f"tracked since {profile.first_seen}")
+    if profile.aliases:
+        facts.append(f"also known as {', '.join(profile.aliases)}")
+    if facts:
+        parts.append(f"<p class='meta'>{escape('; '.join(facts))}</p>")
+    if profile.description:
+        parts.append(f"<p class='detail'>{escape(profile.description)}</p>")
+    tactics = defense_tactics(profile)
+    for tactic in tactics:
+        if tactic.name.lower() == "initial access":
+            items = "".join(
+                f"<li><b>{escape(t.name)} ({escape(t.technique_id)})</b>"
+                + (f": {escape(t.details)}" if t.details else "")
+                + "</li>"
+                for t in tactic.techniques
+            )
+            parts.append(f"<p class='subhead'>How they get in (Initial Access)</p><ul>{items}</ul>")
+    others = [t for t in tactics if t.name.lower() != "initial access"]
+    if others:
+        items = "".join(f"<li>{escape(tactic_line(t))}</li>" for t in others)
+        parts.append(f"<p class='subhead'>How they operate</p><ul>{items}</ul>")
+    if not tactics:
+        parts.append("<p class='meta'>No ATT&amp;CK technique mapping published yet.</p>")
+    tools = tool_lines(profile)
+    if tools:
+        items = "".join(f"<li>{escape(line)}</li>" for line in tools)
+        parts.append(f"<p class='subhead'>Tools</p><ul>{items}</ul>")
+    if profile.reference_url:
+        parts.append(_backup_link(profile.reference_url))
+    parts.append("</div>")
+    return "".join(parts)
 
 
 def _render_notes(report: Report) -> str:
@@ -244,7 +342,9 @@ def _render_landscape(view: DigestView) -> str:
         title = escape(obs.item.title)
         if obs.item.reference_url:
             title = _link(obs.item.reference_url, title)
-        html += f"<li>[{obs.severity.value}] {title}{suffix}</li>"
+        _, description = item_description(obs.item, SNIPPET_LIMIT)
+        snippet = f"<span class='snippet'> — {escape(description)}</span>" if description else ""
+        html += f"<li>[{obs.severity.value}] {title}{suffix}{snippet}</li>"
     html += "</ul>"
     return html
 

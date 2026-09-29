@@ -337,3 +337,62 @@ async def test_missing_notes_file_is_reported_not_fatal(
     assert exit_code == 0
     assert "Unavailable for this run: notes file missing or unreadable." in captured.out
     assert "notes: cannot read" in captured.err
+
+
+RL_BASE = "https://rl.test.invalid/v2"
+
+
+def _write_ransomware_config(config_dir: Path) -> None:
+    config_dir.mkdir(parents=True)
+    (config_dir / "sources.yaml").write_text(
+        "ransomware_live:\n"
+        "  enabled: true\n"
+        f'  base_url: "{RL_BASE}"\n'
+        "  timeout_seconds: 1.0\n"
+        "  group_profiles: 2\n"
+        "cisa_kev:\n"
+        "  enabled: false\n",
+        encoding="utf-8",
+    )
+    (config_dir / "watchlist.yaml").write_text("sectors: [Healthcare]\n", encoding="utf-8")
+
+
+def _victim(name: str, group: str, sector: str) -> dict[str, str]:
+    return {
+        "victim": name,
+        "group": group,
+        "activity": sector,
+        "country": "TH",
+        "description": "Claimed 10 GB.",
+        "attackdate": "2026-09-22T10:00:00+00:00",
+        "url": f"https://www.ransomware.live/id/{name}",
+    }
+
+
+@respx.mock
+async def test_collect_run_attaches_profiles_and_notes_failed_lookups(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_ransomware_config(tmp_path / "config")
+    respx.get(f"{RL_BASE}/recentvictims").respond(
+        json=[_victim("a", "qilin", "Healthcare"), _victim("b", "ghost", "Retail")]
+    )
+    respx.get(f"{RL_BASE}/group/qilin").respond(
+        json={
+            "name": "qilin",
+            "description": "Double extortion.",
+            "locations": [{"fqdn": "c" * 56 + ".onion"}],
+            "ttps": [],
+            "tools": [],
+        }
+    )
+    respx.get(f"{RL_BASE}/group/ghost").respond(status_code=404)
+
+    exit_code = await _run(_make_args(tmp_path), now=NOW)
+
+    out = capsys.readouterr().out
+    report = json.loads(out)
+    assert exit_code == 1  # the Healthcare victim alerts; profile lookups never change this
+    assert [p["name"] for p in report["group_profiles"]] == ["qilin"]
+    assert report["profile_errors"] == ["ghost (HTTPStatusError)"]
+    assert ".onion" not in out

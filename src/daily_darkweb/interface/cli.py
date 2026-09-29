@@ -27,7 +27,7 @@ from daily_darkweb.interface.email_send import (
 )
 from daily_darkweb.interface.render import render_markdown
 from daily_darkweb.interface.render_html import render_html
-from daily_darkweb.orchestration.pipeline import run_pipeline
+from daily_darkweb.orchestration.pipeline import enrich_group_profiles, run_pipeline
 
 _MAX_SEEN_KEYS = 50_000
 # Cap on gap-derived lookback growth: KEV is a small feed and max_items bounds output,
@@ -169,6 +169,11 @@ async def _collect(
             print("No collectors enabled; nothing to do.", file=sys.stderr)
             return None
         report = await run_pipeline(collectors, watchlist, frozenset(state.seen), now=now)
+        profiler = next((c for c in collectors if isinstance(c, RansomwareLiveCollector)), None)
+        if profiler is not None and sources.ransomware_live.group_profiles:
+            report = await enrich_group_profiles(
+                report, profiler.group_profile, sources.ransomware_live.group_profiles
+            )
 
     history = merge_history(state.history, summarize(report, now.date()))
     trends = compute_trends(history, now.date(), watchlist.countries)

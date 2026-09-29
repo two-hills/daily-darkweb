@@ -1,6 +1,21 @@
 # Roadmap
 
-**Current status (2026-09-24):** Running daily as a claude.ai cloud Routine (prompt in
+**Current status (2026-09-29):** The digest now reads on its own — the project's purpose
+is that nobody on our side has to visit the dark web or leak-site mirrors. Alerts carry
+victim context, the unverified claim text and KEV details inline; a new **Threat actor
+profiles** section (ransomware.live structured group data: description, first seen,
+aliases, ATT&CK initial-access techniques with details, defence-relevant tactics, tools)
+covers the groups behind alerts and the most active ones, and the AI notes use it for
+concrete defensive actions. `core/sanitize.py` scrubs .onion addresses, URLs and emails
+from all scraped text at the collector boundary; leak-site fields (`claim_url`,
+`screenshot`, group `locations`) are never read; source markup is flattened. Links stay
+as labelled backups. Ops: two Routine runs had stranded their state on the session's own
+`claude/*` branch (items would repeat) — `main` was fast-forwarded and the Routine now
+uses `ops/persist_state.sh`, which pushes to `main` explicitly and fails loudly. 149 tests
+green. Next: structlog to stderr, then LLM alert ranking; optional NVD/CVSS enrichment
+for KEV items (needs `services.nvd.nist.gov` allowlisted).
+
+**Previous status (2026-09-24):** Running daily as a claude.ai cloud Routine (prompt in
 `ops/routine_prompt.md`; setup lessons in docs/operations.md): the environment needed
 `api.ransomware.live` + `www.cisa.gov` allowlisted, the Claude GitHub App for the state
 push, and the Gmail connector for HTML email because SMTP cannot egress from the cloud.

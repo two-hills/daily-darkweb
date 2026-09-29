@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from daily_darkweb.core.dedup import dedup_key
 from daily_darkweb.core.models import (
+    Alert,
     CollectionStatus,
     CollectResult,
+    GroupProfile,
+    Report,
     Severity,
     Watchlist,
 )
 from daily_darkweb.interface.render import render_markdown
-from daily_darkweb.orchestration.pipeline import run_pipeline
+from daily_darkweb.orchestration.pipeline import (
+    enrich_group_profiles,
+    profile_candidates,
+    run_pipeline,
+)
 from tests.conftest import make_item
 
 
@@ -86,3 +93,48 @@ async def test_alerts_sorted_by_score(now: datetime) -> None:
     )
     scores = [a.score for a in report.alerts]
     assert scores == sorted(scores, reverse=True)
+
+
+def _alert(actor: str, source: str = "ransomware_live", score: int = 50) -> Alert:
+    item = make_item(external_id=f"{actor}-{score}-{source}", actor=actor, source=source)
+    return Alert(item=item, matches=[], score=score, severity=Severity.MEDIUM)
+
+
+def _report(alerts: list[Alert], observations: list[Alert]) -> Report:
+    return Report(
+        generated_at=datetime(2026, 9, 29, tzinfo=UTC),
+        collector_results=[],
+        alerts=alerts,
+        observations=observations,
+    )
+
+
+def test_profile_candidates_put_alert_groups_first_then_most_active() -> None:
+    report = _report(
+        alerts=[_alert("chaos"), _alert("Qilin")],
+        observations=[
+            _alert("akira"),
+            _alert("qilin", score=40),  # same group as an alert, different case
+            _alert("play"),
+            _alert("play", score=41),
+            _alert("akira", score=42),
+            _alert("akira", score=43),
+            _alert("CVE-1", source="cisa_kev"),
+        ],
+    )
+    assert profile_candidates(report, limit=4) == ["chaos", "Qilin", "akira", "play"]
+    assert profile_candidates(report, limit=2) == ["chaos", "Qilin"]
+    assert profile_candidates(report, limit=0) == []
+
+
+async def test_enrichment_attaches_profiles_and_notes_failures() -> None:
+    async def fetch(name: str) -> GroupProfile:
+        if name == "play":
+            raise RuntimeError("upstream down")
+        return GroupProfile(name=name, description=f"{name} profile")
+
+    report = _report(alerts=[_alert("qilin")], observations=[_alert("play")])
+    enriched = await enrich_group_profiles(report, fetch, limit=5)
+    assert [p.name for p in enriched.group_profiles] == ["qilin"]
+    assert enriched.profile_errors == ["play (RuntimeError)"]
+    assert enriched.collector_results == report.collector_results  # never a collection failure
