@@ -5,9 +5,12 @@ from datetime import UTC, date, datetime
 from daily_darkweb.core.models import (
     Alert,
     AnalystNotes,
+    AttackTactic,
+    AttackTechnique,
     CollectionStatus,
     CollectResult,
     DailySummary,
+    GroupProfile,
     KevEntry,
     Match,
     MatchField,
@@ -116,7 +119,8 @@ def test_source_ai_description_gets_badge_and_marker_removed() -> None:
     item = make_item(body="[AI generated] Regional optometry chain.\nSecond line.")
     alert = Alert(item=item, matches=[], score=56, severity=Severity.MEDIUM)
     html = render_html(_report(alerts=[alert], observations=[]))
-    assert "AI-generated description</span>Regional optometry chain.<br>Second line." in html
+    # Descriptions read as one paragraph: line breaks from the source are folded.
+    assert "AI-generated description</span>Regional optometry chain. Second line." in html
     assert "[AI generated]" not in html
 
 
@@ -146,3 +150,48 @@ def test_trends_section_lists_kev_deadlines() -> None:
     assert "<h2>Trends (last 7 days)</h2>" in html
     assert "KEV deadlines in the next 7 days:</span> CVE-2026-8888 (due 2026-07-28)" in html
     assert "&lt;b&gt;gang&lt;/b&gt; 3" in html  # scraped group names stay escaped
+
+
+def test_profile_card_is_escaped_and_keeps_a_backup_link() -> None:
+    profile = GroupProfile(
+        name="<b>qilin</b>",
+        description="<script>alert(1)</script>",
+        tactics=[
+            AttackTactic(
+                tactic_id="TA0001",
+                name="Initial Access",
+                techniques=[
+                    AttackTechnique(technique_id="T1078", name="Valid Accounts", details="<img>")
+                ],
+            )
+        ],
+        tools={"CredentialTheft": ["<i>Mimikatz</i>"]},
+        reference_url="https://www.ransomware.live/group/qilin",
+    )
+    report = _report(alerts=[], observations=[]).model_copy(update={"group_profiles": [profile]})
+    html = render_html(report)
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "<b>qilin</b>" not in html
+    assert "<i>Mimikatz</i>" not in html
+    assert "How they get in (Initial Access)" in html
+    assert "Reference (backup link): <a href='https://www.ransomware.live/group/qilin'" in html
+
+
+def test_alert_card_shows_victim_description_and_group() -> None:
+    item = make_item(
+        body="Patient forms, 290 GB.",
+        sector="Healthcare",
+        country="US",
+        victim_domain="clinic.example",
+        reference_url="https://www.ransomware.live/id/x",
+    )
+    alert = Alert(item=item, matches=[], score=63, severity=Severity.MEDIUM)
+    report = _report(alerts=[alert], observations=[]).model_copy(
+        update={"group_profiles": [GroupProfile(name="QILIN")]}
+    )
+    html = render_html(report)
+    assert "<b>Victim:</b> Healthcare · US · website clinic.example" in html
+    assert "<b>Description (unverified):</b> Patient forms, 290 GB." in html
+    assert "<b>Group:</b> qilin — profile below" in html  # matched case-insensitively
+    assert "Reference (backup link): <a href='https://www.ransomware.live/id/x'" in html

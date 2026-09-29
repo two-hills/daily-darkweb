@@ -83,6 +83,12 @@ Prerequisites, each learned from a failed run:
 - **GitHub push:** the Routine commits `.state/seen.json` to `main`. That needs the
   Claude GitHub App installed on this repository — a public repo clones without it, but
   every push is rejected with 403.
+- **State must land on `main`:** Routine sessions start on their own `claude/*` branch,
+  so "commit and push" alone can strand the state there (it happened on 2026-09-24 and
+  2026-09-29 — the next run then repeats items). The Routine runs
+  `ops/persist_state.sh`, which pushes `HEAD:main` explicitly, rebases and retries if
+  `main` moved, and exits non-zero otherwise; the email then carries a warning line.
+  Recovery if it happens anyway: fast-forward `main` to the stranded state commit.
 - **Email:** SMTP cannot work in the cloud (no raw-TCP egress), so the Routine sends the
   HTML digest with the Gmail connector: HTML body plus the same file attached (skipped
   above 25 KB). It emails every run, clean ones included, so a missing email always
@@ -91,7 +97,10 @@ Prerequisites, each learned from a failed run:
   `digests/notes.json` from the digest, then re-renders with
   `--from-report … --notes …` (no re-collection, state untouched). The notes are
   validated (no links, bounded size) and labelled "AI generated"; rejected notes show
-  as "unavailable" rather than blocking the digest.
+  as "unavailable" rather than blocking the digest. The notes use the digest's
+  threat-actor profiles to tie recommended actions to how the active groups get in.
+- **Email size:** threat-actor profiles make the HTML larger (≈25–30 KB on a busy day),
+  so the attachment is often skipped — the inline HTML body carries the same content.
 
 ## Change the schedule / uninstall
 

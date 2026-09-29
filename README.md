@@ -23,11 +23,23 @@ collectors (async, timeout, fail-closed)
     -> dedupe + seen-state filter (only new signals)
     -> watchlist match (keywords / orgs / domains / sectors / countries)
     -> deterministic scoring (source + match weights + recency -> severity)
+    -> threat-actor profiles for the groups involved (TTPs, tools)
     -> trends from daily history (this week vs last week, KEV deadlines)
     -> markdown / JSON / HTML digest
     -> optional AI analyst notes, added by re-rendering (labelled "AI generated")
 ```
 
+- 📖 **Readable without visiting anything.** The whole point: nobody on your side needs
+  to open leak sites or dark-web mirrors. Each alert carries its details inline — victim
+  context, the (unverified) claim text, KEV summary, required action and deadline — and
+  links remain only as a labelled backup.
+- 🧭 **Threat actor profiles.** For the groups behind your alerts (then the most active
+  ones), the digest explains who they are, **how they get in** (MITRE ATT&CK initial-access
+  techniques with details), how they operate (defence evasion, credential access, lateral
+  movement, exfiltration, impact) and which tools they use — the input for a defence plan.
+- 🧹 **No leak-site links, ever.** All scraped text is scrubbed of .onion addresses, URLs
+  and email addresses before it's stored or shown; the source's leak-site and screenshot
+  fields are never read.
 - 🚫 **Fail-closed.** A collector error is surfaced in the digest as an explicit failure
   ("do not treat as all-clear") — never silently dropped or reported as a clean run.
 - 🎯 **Deterministic.** No AI in the matching or scoring path. Same input always produces the
@@ -69,7 +81,8 @@ Exit codes (scheduler-friendly): `0` ✅ clean · `1` ⚠️ alerts found · `3`
 Tune what counts as "your interests" in [config/watchlist.yaml](config/watchlist.yaml) —
 technology keywords (e.g. Cisco, Fortinet, Check Point, breach terms), sectors, and
 countries (APJC by default). No owned domains are required; the project ships in awareness
-mode. Collector toggles live in [config/sources.yaml](config/sources.yaml).
+mode. Collector toggles live in [config/sources.yaml](config/sources.yaml), including
+`group_profiles` — how many threat-actor profiles each digest includes (default 5, 0 = off).
 
 ### 🤖 Adding AI analyst notes
 
@@ -116,13 +129,28 @@ Recommended actions:
 - KEV deadlines in the next 7 days: CVE-2026-93616 (due 2026-09-25), CVE-2026-85102 (due 2026-09-25)
 
 ## Watchlist alerts (3)
-### [HIGH 73] CVE-2026-25089: Fortinet FortiSandbox OS Command Injection Vulnerability
-- Matched: keyword=fortinet
-- Source: `cisa_kev` | published: 2026-07-16
-- Reference: https://nvd.nist.gov/vuln/detail/CVE-2026-25089
+### [HIGH 67] Example Diagnostics Ltd claimed by qilin
+- Matched: sector=Healthcare, country=PH
+- Source: `ransomware_live` | published: 2026-09-28 16:59 UTC
+- Victim: Healthcare · PH · website example-diagnostics.test
+- Description (unverified): Diagnostic laboratory; the group claims patient and billing data.
+- Group: qilin — profile below
+- Reference (backup link): https://www.ransomware.live/id/…
+
+## Threat actor profiles (1)
+### qilin
+_tracked since 2022-10-08_
+Qilin ransomware was first observed in July of 2022 … Qilin actors practice double extortion …
+- How they get in (Initial Access):
+  - Valid Accounts (T1078): Compromised credentials used to authenticate via VPN and RDP …
+  - Exploit Public-Facing Application (T1190): Exploitation of vulnerabilities in VPN appliances …
+- Credential Access: OS Credential Dumping: LSASS Memory (T1003.001), Network Sniffing (T1040), …
+- Tools: Credential theft: Mimikatz; Remote management (RMM) tools: NetSupport, ScreenConnect; …
+- Reference (backup link): https://www.ransomware.live/group/qilin
 ```
 
-(Illustrative numbers. The HTML version is color-coded, with clickable source links.)
+(Illustrative numbers and a fictional victim. The HTML version is color-coded, with the
+same details in cards.)
 
 ## ⏰ Running it daily
 

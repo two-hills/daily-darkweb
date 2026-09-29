@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Self
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from daily_darkweb.core.models import Watchlist
 
@@ -16,6 +16,8 @@ class RansomwareLiveConfig(BaseModel):
     base_url: str = "https://api.ransomware.live/v2"
     timeout_seconds: float = 15.0
     max_items: int = 100
+    # Threat-actor profiles fetched per run (alert groups first); 0 disables the lookups.
+    group_profiles: int = Field(default=5, ge=0, le=10)
 
 
 class CisaKevConfig(BaseModel):

@@ -177,6 +177,32 @@ class AnalystNotes(BaseModel):
         return self
 
 
+class AttackTechnique(BaseModel):
+    technique_id: str  # MITRE ATT&CK id, e.g. T1078
+    name: str
+    details: str = ""  # how this group uses it, scrubbed of links
+
+
+class AttackTactic(BaseModel):
+    tactic_id: str  # MITRE ATT&CK id, e.g. TA0001
+    name: str
+    techniques: list[AttackTechnique] = Field(default_factory=list)
+
+
+class GroupProfile(BaseModel):
+    """What a defender needs to know about a ransomware group, readable without visiting
+    any site: who they are, how they get in and operate, and which tools they use.
+    Built from structured clearnet data; the group's leak-site addresses are never kept."""
+
+    name: str
+    description: str = ""
+    first_seen: date | None = None
+    aliases: list[str] = Field(default_factory=list)
+    tools: dict[str, list[str]] = Field(default_factory=dict)
+    tactics: list[AttackTactic] = Field(default_factory=list)
+    reference_url: str | None = None
+
+
 class Report(BaseModel):
     generated_at: datetime
     collector_results: list[CollectResult]
@@ -186,6 +212,9 @@ class Report(BaseModel):
     analyst_notes: AnalystNotes | None = None
     # Why notes that were requested are missing; rendered instead of the notes box.
     analyst_notes_unavailable: str | None = None
+    group_profiles: list[GroupProfile] = Field(default_factory=list)
+    # Supplementary lookups that failed; noted in the digest, never a collector failure.
+    profile_errors: list[str] = Field(default_factory=list)
 
     @property
     def has_failures(self) -> bool:

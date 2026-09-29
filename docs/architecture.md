@@ -14,7 +14,8 @@ interface (cli, digest_view, render_md/html, state file)  I/O allowed
     └── orchestration (pipeline)         async fan-out over collectors
             ├── collectors (adapters)    network I/O, per-call timeout, retry
             └── core (models, matching,  PURE: no I/O, no network, no AI,
-                 scoring, dedup, trends) `now` always passed in
+                 scoring, dedup, trends, `now` always passed in
+                 sanitize)
 ```
 
 `interface/digest_view.py` is a format-agnostic view model shared by both renderers: it
@@ -66,6 +67,24 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   wrong", and never feed matching, scoring or exit codes; a missing or rejected file
   renders as "unavailable" instead of blocking the digest. Source text a feed marks
   `[AI generated]` (ransomware.live descriptions) gets a visible badge too.
+- **Readable without visiting any source.** The point of the pipeline is that nobody on
+  our side opens leak sites or dark-web mirrors, so the digest carries the details
+  inline: victim context, the (unverified) claim text, KEV summary / required action /
+  deadline, and a **threat-actor profile** per relevant group (description, first seen,
+  aliases, MITRE ATT&CK initial-access techniques with details, the defence-relevant
+  tactics, and tools) from ransomware.live's structured group data. Profiles are
+  fetched after scoring for the groups behind watchlist alerts first, then the most
+  active ones (`group_profiles`, default 5), one request at a time; a failed lookup is
+  listed in the digest and is never a collection failure. Links remain only as backup
+  references (clearnet https pages built from structured fields).
+- **No leak-site links, ever.** `core/sanitize.py` scrubs every scraped text field at the
+  collector boundary: .onion addresses, URLs with a scheme and email addresses become
+  markers (bare domains stay — a victim's website identifies it). Source markup (`<BR>`,
+  quote markers) is flattened to plain text. The feed's leak-site fields (`claim_url`,
+  `screenshot`, group `locations`) are never modelled, so they cannot reach state,
+  reports or email. Direct dark-web access stays out of scope: deeper coverage comes from
+  a sanctioned CTI provider's API as a new collector, not from routing around company or
+  ISP controls.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
