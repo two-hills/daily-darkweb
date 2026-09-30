@@ -39,72 +39,96 @@ from daily_darkweb.interface.digest_view import (
     victim_context,
 )
 
-_STYLE = """
-:root {
-  --bg: #f4f5f7; --card: #ffffff; --text: #1a1d23; --muted: #5b6270; --border: #e2e4e9;
-  --crit: #b3261e; --high: #b5560a; --med: #8a6d00; --low: #2f5aa8; --info: #5b6270;
-  --ai: #6b4fbb;
+# The same page is the email body, and email clients (Gmail, Outlook) drop CSS custom
+# properties: with var() colours the body lost its cards and badges and badge text went
+# white-on-white. So colours are literal values, generated per palette; badges also
+# carry inline colours because some clients strip <style> blocks altogether.
+_LIGHT = {
+    "bg": "#f4f5f7",
+    "card": "#ffffff",
+    "text": "#1a1d23",
+    "muted": "#5b6270",
+    "border": "#e2e4e9",
+    "critical": "#b3261e",
+    "high": "#b5560a",
+    "medium": "#8a6d00",
+    "low": "#2f5aa8",
+    "info": "#5b6270",
+    "ai": "#6b4fbb",
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14161a; --card: #1d2026; --text: #e8e9ec; --muted: #9aa0ab; --border: #2c2f36;
-    --crit: #ff6b60; --high: #ff9f43; --med: #e0c229; --low: #6fa8ff; --info: #9aa0ab;
-    --ai: #b39dff;
-  }
+_DARK = {
+    "bg": "#14161a",
+    "card": "#1d2026",
+    "text": "#e8e9ec",
+    "muted": "#9aa0ab",
+    "border": "#2c2f36",
+    "critical": "#ff6b60",
+    "high": "#ff9f43",
+    "medium": "#e0c229",
+    "low": "#6fa8ff",
+    "info": "#9aa0ab",
+    "ai": "#b39dff",
 }
-* { box-sizing: border-box; }
+
+_LAYOUT = """
 body {
-  background: var(--bg); color: var(--text); margin: 0; padding: 24px 16px 64px;
+  margin: 0; padding: 24px 16px 64px;
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 main { max-width: 780px; margin: 0 auto; }
 h1 { font-size: 22px; margin: 0 0 4px; }
-.subtitle { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
-h2 {
-  font-size: 16px; margin: 32px 0 4px; padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}
-.section-note { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
-.card {
-  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 14px 16px; margin-bottom: 10px;
-}
+.subtitle { font-size: 13px; margin-bottom: 28px; }
+h2 { font-size: 16px; margin: 32px 0 4px; padding-bottom: 8px; }
+.section-note { font-size: 13px; margin: 0 0 12px; }
+.card { border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
 .card-title { font-weight: 600; font-size: 14px; margin: 0 0 6px; }
 .card-title a { color: inherit; text-decoration: none; }
-.card-title a:hover { text-decoration: underline; }
-.meta { color: var(--muted); font-size: 12.5px; margin: 2px 0; }
+.meta { font-size: 12.5px; margin: 2px 0; }
 .badge {
   display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .02em;
   padding: 2px 8px; border-radius: 999px; margin-right: 8px; text-transform: uppercase;
-  color: #fff;
 }
-.badge-critical { background: var(--crit); }
-.badge-high { background: var(--high); }
-.badge-medium { background: var(--med); color: #1a1d23; }
-.badge-low { background: var(--low); }
-.badge-info { background: var(--info); }
-.due { color: var(--crit); font-weight: 600; }
-.empty { color: var(--muted); font-style: italic; }
-.fail { color: var(--crit); font-weight: 600; }
-.ok { color: var(--muted); }
-.stats { color: var(--muted); font-size: 13px; margin: 4px 0; }
+.due, .fail { font-weight: 600; }
+.empty { font-style: italic; }
+.stats { font-size: 13px; margin: 4px 0; }
 ul.plain { list-style: none; padding: 0; margin: 8px 0; }
-ul.plain li { padding: 4px 0; font-size: 13.5px; border-bottom: 1px dotted var(--border); }
-.badge-ai { background: var(--ai); }
-.ai-notes {
-  background: var(--card); border: 1px dashed var(--ai); border-radius: 10px;
-  padding: 4px 16px 12px; margin-top: 24px;
-}
-.ai-notes h2 { border-bottom: none; margin-top: 12px; }
+ul.plain li { padding: 4px 0; font-size: 13.5px; }
+.ai-notes { border-radius: 10px; padding: 4px 16px 12px; margin-top: 24px; }
+.ai-notes h2 { margin-top: 12px; }
 .ai-headline { font-weight: 600; margin: 8px 0; }
-.ai-subhead { color: var(--muted); font-size: 13px; font-weight: 600; margin: 12px 0 0; }
+.ai-subhead { font-size: 13px; font-weight: 600; margin: 12px 0 0; }
 .ai-notes ul { margin: 6px 0; padding-left: 20px; font-size: 14px; }
 .source-ai { font-style: italic; }
 .detail { font-size: 13.5px; margin: 4px 0; }
-.subhead { color: var(--muted); font-size: 13px; font-weight: 600; margin: 10px 0 0; }
+.subhead { font-size: 13px; font-weight: 600; margin: 10px 0 0; }
 .card ul { margin: 4px 0; padding-left: 20px; font-size: 13.5px; }
-.snippet { color: var(--muted); }
 """
+
+
+def _colors(p: dict[str, str]) -> str:
+    muted = ".subtitle, .section-note, .meta, .empty, .ok, .stats, .subhead, .ai-subhead, .snippet"
+    return (
+        f"body {{ background: {p['bg']}; color: {p['text']}; }}\n"
+        f"{muted} {{ color: {p['muted']}; }}\n"
+        f"h2 {{ border-bottom: 1px solid {p['border']}; }}\n"
+        f".card {{ background: {p['card']}; border: 1px solid {p['border']}; }}\n"
+        f"ul.plain li {{ border-bottom: 1px dotted {p['border']}; }}\n"
+        f".due, .fail {{ color: {p['critical']}; }}\n"
+        f".ai-notes {{ background: {p['card']}; border: 1px dashed {p['ai']}; }}\n"
+        ".ai-notes h2 { border-bottom: none; }\n"
+    )
+
+
+_STYLE = (
+    _LAYOUT + _colors(_LIGHT) + "@media (prefers-color-scheme: dark) {\n" + _colors(_DARK) + "}\n"
+)
+
+
+def _badge(kind: str, label_html: str) -> str:
+    """Severity/AI badge with inline colours, so it stays legible in every client."""
+    fg = _LIGHT["text"] if kind == "medium" else "#ffffff"
+    style = f"background:{_LIGHT[kind]};color:{fg}"
+    return f"<span class='badge badge-{kind}' style='{style}'>{label_html}</span>"
 
 
 def render_html(report: Report) -> str:
@@ -178,10 +202,7 @@ def _backup_link(url: str) -> str:
 
 def _render_alert_card(alert: Alert, profiled: dict[str, GroupProfile]) -> str:
     item = alert.item
-    badge = (
-        f"<span class='badge badge-{alert.severity.value}'>"
-        f"{alert.severity.value} {alert.score}</span>"
-    )
+    badge = _badge(alert.severity.value, f"{alert.severity.value} {alert.score}")
     lines = [f"<div class='card'><p class='card-title'>{badge}{escape(item.title)}</p>"]
     if alert.matches:
         matched = ", ".join(f"{m.field.value}={escape(m.watch_value)}" for m in alert.matches)
@@ -209,10 +230,8 @@ def _ransomware_details(item: RawItem, profiled: dict[str, GroupProfile]) -> lis
     source_ai, description = item_description(item)
     if description:
         if source_ai:
-            lines.append(
-                "<p class='detail source-ai'><span class='badge badge-ai'>AI-generated "
-                f"description</span>{escape(description)}</p>"
-            )
+            badge = _badge("ai", "AI-generated description")
+            lines.append(f"<p class='detail source-ai'>{badge}{escape(description)}</p>")
         else:
             lines.append(
                 f"<p class='detail'><b>Description (unverified):</b> {escape(description)}</p>"
@@ -280,7 +299,7 @@ def _render_notes(report: Report) -> str:
         return ""
     html = (
         "<section class='ai-notes'>"
-        f"<h2>{escape(AI_NOTES_TITLE)} <span class='badge badge-ai'>AI generated</span></h2>"
+        f"<h2>{escape(AI_NOTES_TITLE)} {_badge('ai', 'AI generated')}</h2>"
         f"<p class='section-note'>{escape(AI_NOTES_DISCLAIMER)}</p>"
     )
     notes = report.analyst_notes

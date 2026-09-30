@@ -104,7 +104,8 @@ def test_ai_notes_are_escaped_and_labelled() -> None:
     assert "<b>not bold</b>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<img src=x" not in html
-    assert "<span class='badge badge-ai'>AI generated</span>" in html
+    assert "class='badge badge-ai'" in html
+    assert ">AI generated</span>" in html
     assert "may be wrong" in html
 
 
@@ -195,3 +196,27 @@ def test_alert_card_shows_victim_description_and_group() -> None:
     assert "<b>Description (unverified):</b> Patient forms, 290 GB." in html
     assert "<b>Group:</b> qilin — profile below" in html  # matched case-insensitively
     assert "Reference (backup link): <a href='https://www.ransomware.live/id/x'" in html
+
+
+def test_html_is_email_safe_no_css_variables() -> None:
+    """The page doubles as the email body; Gmail and Outlook drop var(), which once
+    erased cards and badges (white-on-white badge text) from the delivered email."""
+    alert = Alert(
+        item=make_item(body="[AI generated] Text."),
+        matches=[],
+        score=76,
+        severity=Severity.HIGH,
+    )
+    report = _report(alerts=[alert], observations=[]).model_copy(
+        update={
+            "analyst_notes": AnalystNotes(headline="h", points=["p"]),
+            "group_profiles": [GroupProfile(name="qilin", description="d")],
+        }
+    )
+    html = render_html(report)
+    assert "var(" not in html
+    assert "--" not in html.split("<style>", 1)[1].split("</style>", 1)[0]
+    # Badges carry their colours inline, so they survive clients that strip <style>.
+    assert "<span class='badge badge-high' style='background:#b5560a;color:#ffffff'>" in html
+    assert "style='background:#6b4fbb;color:#ffffff'>AI generated</span>" in html
+    assert "style='background:#6b4fbb;color:#ffffff'>AI-generated description</span>" in html

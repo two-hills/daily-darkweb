@@ -88,6 +88,11 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
+- **The HTML is also the email body, so it must be email-safe.** Gmail and Outlook drop
+  CSS custom properties; with `var()` colours the body lost its cards and badges (badge
+  text went white-on-white) while the same file looked fine opened in a browser. Colours
+  are literal values generated per palette (light, plus a dark `@media` block), badges
+  carry inline colours too, and a test fails if `var(` ever reappears.
 - **Email is a redundant channel, not a source of truth.** `interface/email_send.py`
   loads SMTP identity (user/recipient) from env/`.env` only — never hardcoded, and
   deliberately kept out of committed source since this repo is public. The password

@@ -88,7 +88,10 @@ Prerequisites, each learned from a failed run:
   2026-09-29 — the next run then repeats items). The Routine runs
   `ops/persist_state.sh`, which pushes `HEAD:main` explicitly, rebases and retries if
   `main` moved, and exits non-zero otherwise; the email then carries a warning line.
-  Recovery if it happens anyway: fast-forward `main` to the stranded state commit.
+  Recovery if it happens anyway: fast-forward `main` to the stranded state commit. After
+  a successful push the session branch tracks `origin/main` with nothing unpushed, and
+  the prompt tells the Routine not to publish its own branch — earlier runs left one
+  obsolete `claude/*` branch per day on GitHub (cleaned up on 2026-09-30).
 - **Email:** SMTP cannot work in the cloud (no raw-TCP egress), so the Routine sends the
   HTML digest with the Gmail connector: HTML body plus the same file attached (skipped
   above 25 KB). It emails every run, clean ones included, so a missing email always
@@ -99,8 +102,10 @@ Prerequisites, each learned from a failed run:
   validated (no links, bounded size) and labelled "AI generated"; rejected notes show
   as "unavailable" rather than blocking the digest. The notes use the digest's
   threat-actor profiles to tie recommended actions to how the active groups get in.
-- **Email size:** threat-actor profiles make the HTML larger (≈25–30 KB on a busy day),
-  so the attachment is often skipped — the inline HTML body carries the same content.
+- **Attachment:** required whenever the HTML is ≤ 25,000 bytes (a Routine once skipped it
+  "to avoid copy corruption"; the prompt now forbids that). Threat-actor profiles make
+  the HTML ≈25–30 KB on busy days, and only then is it skipped — the inline body carries
+  the same content and renders the same, since the HTML is email-safe (no CSS variables).
 
 ## Change the schedule / uninstall
 

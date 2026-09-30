@@ -292,7 +292,7 @@ async def test_notes_are_added_by_re_rendering_a_saved_report_offline(
     assert "**Quiet day**" in out
     assert "## Trends (last 7 days)" in out  # trends survive the JSON round trip
     assert "CVE-2026-80001" in out
-    assert "badge-ai'>AI generated" in (tmp_path / "out" / "digest.html").read_text("utf-8")
+    assert ">AI generated</span>" in (tmp_path / "out" / "digest.html").read_text("utf-8")
     assert respx.calls.call_count == calls_before  # no network on re-render
     assert state_path.read_bytes() == state_before  # state untouched
 

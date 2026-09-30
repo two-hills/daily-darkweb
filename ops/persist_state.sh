@@ -20,6 +20,9 @@ git commit -q -m "$MESSAGE" -- "$STATE"
 
 for attempt in 1 2 3; do
   if git push -q origin "HEAD:refs/heads/main"; then
+    # The session branch now equals main. Tracking origin/main leaves nothing
+    # "unpushed", so the run has no reason to publish a throwaway claude/* branch.
+    git branch -q --set-upstream-to=origin/main 2>/dev/null || true
     echo "state: pushed to main ($(git rev-parse --short HEAD))"
     exit 0
   fi
