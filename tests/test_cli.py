@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import respx
+import structlog
 from pydantic import ValidationError
 
 from daily_darkweb.core.models import (
@@ -23,6 +25,7 @@ from daily_darkweb.interface.cli import (
     _run,
     _save_state,
     _State,
+    main,
 )
 from tests.conftest import make_item
 
@@ -522,3 +525,36 @@ async def test_vulncheck_token_reaches_only_vulncheck_and_cisa_wins_overlaps(
     # … so CISA's entry is the one reported, once.
     assert reported == [("cisa_kev", "CVE-2026-80001"), ("vulncheck_kev", "CVE-2026-80002")]
     assert report["trends"]["vulncheck_added"]["current"] == 1
+
+
+def test_main_logs_to_stderr_so_stdout_is_only_the_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing collector's warning used to be the first line of stdout, so the JSON
+    digest didn't parse and the markdown one started with log noise."""
+    _write_config(tmp_path / "config")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "daily-darkweb",
+            "--config-dir",
+            str(tmp_path / "config"),
+            "--no-state",
+            "--format",
+            "json",
+        ],
+    )
+    try:
+        with respx.mock:
+            respx.get(FEED_URL).respond(status_code=404)
+            exit_code = main()
+    finally:
+        structlog.reset_defaults()
+
+    captured = capsys.readouterr()
+    assert exit_code == 3
+    report = json.loads(captured.out)  # nothing but the digest on stdout
+    assert report["collector_results"][0]["status"] == "failed"
+    assert "collect_failed" in captured.err
+    assert "\x1b[" not in captured.err  # no colour codes when stderr isn't a terminal

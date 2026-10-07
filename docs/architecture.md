@@ -29,6 +29,8 @@ output format by writing one more renderer against it, not by touching the pipel
   normalize source records into `RawItem`. Adding a source never touches the core.
 - `CollectResult.status == FAILED` is a first-class outcome ("could not determine").
   The pipeline surfaces it in the report; the CLI exits 3. Never a false all-clear.
+- Stdout carries only the digest (markdown, JSON or HTML); every diagnostic — structlog
+  warnings included — goes to stderr, so captured digests and JSON stay clean.
 
 ## Scoring model (deterministic)
 

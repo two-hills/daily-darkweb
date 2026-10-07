@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
+import structlog
 from pydantic import BaseModel, Field, ValidationError
 
 from daily_darkweb.collectors.base import Collector
@@ -299,6 +300,31 @@ async def _run(args: argparse.Namespace, now: datetime | None = None) -> int:
     return 1 if report.alerts else 0
 
 
+def _stderr_logger(*_: object) -> structlog.PrintLogger:
+    # Resolved on every log call, so it always follows the current sys.stderr.
+    return structlog.PrintLogger(sys.stderr)
+
+
+def _configure_logging() -> None:
+    """Diagnostics go to stderr; stdout carries only the digest (markdown, JSON or HTML).
+
+    structlog's default writes to stdout, so a failing collector's warning used to open
+    the digest: `--format json` stopped parsing, run_daily.sh archived it inside the .md,
+    and the Routine had to skip it. Colours only on a terminal, so captured logs stay
+    plain text; timestamps in UTC like the digest.
+    """
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.StackInfoRenderer(),
+            structlog.dev.set_exc_info,
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=True),
+            structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty()),
+        ],
+        logger_factory=_stderr_logger,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="daily-darkweb", description="CTI collection digest")
     parser.add_argument(
@@ -337,6 +363,7 @@ def main() -> int:
         "unavailable)",
     )
     args = parser.parse_args()
+    _configure_logging()
     return asyncio.run(_run(args))
 
 

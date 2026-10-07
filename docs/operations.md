@@ -55,7 +55,8 @@ archived files — email is a convenience channel, not the source of truth.
 ## Day-to-day
 
 - Digests archive to `digests/YYYY-MM-DD.md` (plain text) and `.html` (open in a browser —
-  color-coded severity, clickable source links); stderr to `digests/YYYY-MM-DD.err.log`.
+  color-coded severity, clickable source links); stderr to `digests/YYYY-MM-DD.err.log`,
+  which is where warnings such as a failed collector's go — never into the digest.
 - macOS notification fires only when there are new alerts (exit 1) or a collector
   failed (exit 3 — "do not treat as all-clear"). Clean runs (0) are silent.
 - Exit 4 means the runner itself died before the pipeline reported (bad config, missing
