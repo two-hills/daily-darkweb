@@ -18,6 +18,8 @@ from daily_darkweb.core.trends import DUE_SOON_DAYS, RANSOMWARE_SOURCE
 from daily_darkweb.interface.digest_view import (
     AI_NOTES_DISCLAIMER,
     AI_NOTES_TITLE,
+    BREACH_WATCH_NOTE,
+    BREACH_WATCH_TITLE,
     PROFILES_NOTE,
     PROFILES_TITLE,
     SNIPPET_LIMIT,
@@ -75,6 +77,16 @@ def render_markdown(report: Report) -> str:
         lines.append("No additional exploited CVEs outside your watchlist this run.")
     lines.append("")
 
+    if view.has_breach_source:
+        lines.append(f"## {BREACH_WATCH_TITLE} ({len(view.breach_watch)})")
+        lines.append(BREACH_WATCH_NOTE)
+        if view.breach_watch:
+            for alert in view.breach_watch:
+                lines.extend(_render_alert(alert, profiled))
+        else:
+            lines.append("No new breaches outside your watchlist this run.")
+        lines.append("")
+
     lines.append("## Threat landscape (ransomware, new signals)")
     if view.landscape_observations:
         lines.append(f"- New signals: {view.landscape_total}")
@@ -125,6 +137,8 @@ def _render_alert(alert: Alert, profiled: dict[str, GroupProfile]) -> list[str]:
             lines.append(f"- Infostealer exposure: {exposure}")
     else:
         lines.extend(f"- {line}" for line in detail_lines(item))
+        if item.summary:
+            lines.append(f"- Summary: {item.summary}")
     if item.due_date:
         lines.append(f"- Patch by: {item.due_date:%Y-%m-%d}")
     if item.press_url:
@@ -207,6 +221,8 @@ def _render_trends(trends: Trends) -> list[str]:
     if trends.kev_due_soon:
         due = ", ".join(f"{e.cve_id} (due {e.due_date})" for e in trends.kev_due_soon)
         lines.append(f"- KEV deadlines in the next {DUE_SOON_DAYS} days: {due}")
+    if trends.breaches_added:
+        lines.append(f"- Breaches added to HIBP: {format_delta(trends.breaches_added)}")
     lines.extend([f"- {history_note(trends)}", ""])
     return lines
 

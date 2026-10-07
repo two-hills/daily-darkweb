@@ -44,6 +44,16 @@ class CisaKevConfig(BaseModel):
     max_items: int = 200
 
 
+class HibpConfig(BaseModel):
+    """Have I Been Pwned's public breach catalogue (no key; CC BY 4.0, credited)."""
+
+    enabled: bool = True
+    base_url: str = "https://haveibeenpwned.com/api/v3"
+    timeout_seconds: float = 30.0
+    recent_days: int = 30  # minimum lookback on AddedDate; widened to cover run gaps
+    max_items: int = 50
+
+
 class TorOnionConfig(BaseModel):
     """Placeholder. Stays disabled until a sanctioned CTI program with legal cover exists."""
 
@@ -62,6 +72,7 @@ class TorOnionConfig(BaseModel):
 class SourcesConfig(BaseModel):
     ransomware_live: RansomwareLiveConfig = RansomwareLiveConfig()
     cisa_kev: CisaKevConfig = CisaKevConfig()
+    hibp: HibpConfig = HibpConfig()
     tor_onion: TorOnionConfig = TorOnionConfig()
 
 

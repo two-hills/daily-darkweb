@@ -130,7 +130,9 @@ def _write_config(config_dir: Path) -> None:
         f'  feed_url: "{FEED_URL}"\n'
         "  timeout_seconds: 1.0\n"
         "  recent_days: 30\n"
-        "  max_items: 200\n",
+        "  max_items: 200\n"
+        "hibp:\n"
+        "  enabled: false\n",
         encoding="utf-8",
     )
     (config_dir / "watchlist.yaml").write_text("keywords: []\n", encoding="utf-8")
@@ -356,6 +358,8 @@ def _write_ransomware_config(config_dir: Path) -> None:
         "  timeout_seconds: 1.0\n"
         "  group_profiles: 2\n"
         "cisa_kev:\n"
+        "  enabled: false\n"
+        "hibp:\n"
         "  enabled: false\n",
         encoding="utf-8",
     )
@@ -408,3 +412,61 @@ async def test_collect_run_attaches_profiles_and_notes_failed_lookups(
     assert report["profile_errors"] == ["ghost (HTTPStatusError)"]
     assert ".onion" not in out
     assert "subscriber@example.com" not in out  # the API's account field is never kept
+
+
+HIBP_BASE = "https://hibp.test.invalid/api/v3"
+
+
+def _breach(name: str, added: str, **extra: object) -> dict[str, object]:
+    return {
+        "Name": name,
+        "Title": name,
+        "Domain": f"{name.lower()}.co.jp",
+        "BreachDate": "2026-08-01",
+        "AddedDate": added,
+        "PwnCount": 1200,
+        "Description": "A <a href='https://news.example/x'>data breach</a> at the shop.",
+        "DataClasses": ["Email addresses", "Passwords"],
+        "IsVerified": True,
+        **extra,
+    }
+
+
+@respx.mock
+async def test_hibp_run_covers_the_gap_and_feeds_the_breach_watch_and_trends(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "sources.yaml").write_text(
+        "ransomware_live:\n  enabled: false\ncisa_kev:\n  enabled: false\n"
+        f'hibp:\n  enabled: true\n  base_url: "{HIBP_BASE}"\n  timeout_seconds: 1.0\n'
+        "  recent_days: 30\n",
+        encoding="utf-8",
+    )
+    (config_dir / "watchlist.yaml").write_text(
+        "keywords: [breach]\ncountries: [JP]\n", encoding="utf-8"
+    )
+    _write_state(tmp_path, _State(last_success=datetime(2026, 8, 18, 5, 0, tzinfo=UTC)))
+    respx.get(f"{HIBP_BASE}/breaches").respond(
+        json=[
+            _breach("GapShop", "2026-08-19T10:00:00Z"),  # inside the gap, outside 30 days
+            _breach("OldShop", "2026-08-01T10:00:00Z"),  # before the last good run
+            _breach("SpamList", "2026-09-20T10:00:00Z", IsSpamList=True),
+        ]
+    )
+    args = _make_args(tmp_path)
+    args.format = "md"
+
+    exit_code = await _run(args, now=NOW)
+
+    captured = capsys.readouterr()
+    assert exit_code == 1  # the inferred country matches; the keyword alone never would
+    assert "hibp: widening lookback to 37d" in captured.err  # 36 days + 1 hour, rounded up
+    # 35 (source) + 4 (country) + 0 (added 35 days ago): a low, still-alerting signal.
+    assert "### [LOW 39] GapShop: 1,200 accounts exposed" in captured.out
+    assert "- Matched: country=JP" in captured.out  # not keyword=breach
+    assert "OldShop" not in captured.out
+    assert "SpamList" not in captured.out
+    assert "- Breaches added to HIBP: 1" in captured.out
+    assert "## Breach watch (0)" in captured.out  # its one breach became an alert instead

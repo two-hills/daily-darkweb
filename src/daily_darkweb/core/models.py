@@ -77,6 +77,9 @@ class RawItem(BaseModel):
     due_date: datetime | None = None  # remediation deadline, when the source provides one
     press_url: str | None = None  # clearnet news coverage of the claim, a backup link only
     infostealer: InfostealerExposure | None = None
+    # The source's own account of the incident: shown to readers, never matched against
+    # the watchlist (every HIBP summary says "breach", which would trip that keyword).
+    summary: str = ""
 
     @field_validator("fetched_at", "published_at", "due_date")
     @classmethod
@@ -135,6 +138,9 @@ class DailySummary(BaseModel):
     sectors: dict[str, int] = Field(default_factory=dict)
     countries: dict[str, int] = Field(default_factory=dict)
     kev_added: list[KevEntry] = Field(default_factory=list)
+    # None when the breach catalogue was not collected that day (older history, source
+    # disabled or failed), so trends never compare against days nobody looked.
+    breaches_added: int | None = None
 
 
 class CountDelta(BaseModel):
@@ -159,6 +165,7 @@ class Trends(BaseModel):
     watch_country_breakdown: list[CountDelta]
     kev_added: CountDelta
     kev_due_soon: list[KevEntry]
+    breaches_added: CountDelta | None = None  # None until the breach catalogue has history
 
     @property
     def has_previous(self) -> bool:

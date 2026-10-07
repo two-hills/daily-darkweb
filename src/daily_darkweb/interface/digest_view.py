@@ -23,7 +23,13 @@ from daily_darkweb.core.models import (
 from daily_darkweb.core.sanitize import clip
 
 _VULN_SOURCE = "cisa_kev"
+_BREACH_SOURCE = "hibp"
 TOP_OBSERVATIONS = 10
+BREACH_WATCH_TITLE = "Breach watch"
+BREACH_WATCH_NOTE = (
+    "Every breach newly loaded into Have I Been Pwned — who, when, how many accounts and "
+    "which data — beyond your watchlist. Source: haveibeenpwned.com (CC BY 4.0)."
+)
 TOP_STATS = 5
 AI_NOTES_TITLE = "AI analyst notes"
 AI_NOTES_DISCLAIMER = (
@@ -40,8 +46,9 @@ CVES_PER_PROFILE = 5
 OVERVIEW_TITLE = "Daily Darkweb digest — overview"
 OVERVIEW_NOTE = (
     "Overview of a large report. The attached HTML report has every detail: victim "
-    "descriptions, infostealer exposure, press coverage, threat-actor profiles (how they "
-    "get in, the vulnerabilities they exploit, their tools) and backup references."
+    "descriptions, breach summaries, infostealer exposure, press coverage, threat-actor "
+    "profiles (how they get in, the vulnerabilities they exploit, their tools) and backup "
+    "references."
 )
 OVERVIEW_ITEMS = 15  # one-line entries per overview section
 DESCRIPTION_LIMIT = 500
@@ -216,6 +223,8 @@ def history_note(trends: Trends) -> str:
 class DigestView:
     alerts: list[Alert]
     vulnerability_watch: list[Alert]
+    breach_watch: list[Alert]
+    has_breach_source: bool  # the section is shown only when the catalogue was read
     landscape_observations: list[Alert]
     landscape_total: int
     top_actors: list[tuple[str, int]]
@@ -225,13 +234,18 @@ class DigestView:
 
 def build_view(report: Report) -> DigestView:
     vuln_watch = [a for a in report.observations if a.item.source == _VULN_SOURCE]
-    landscape = [a for a in report.observations if a.item.source != _VULN_SOURCE]
+    breach_watch = [a for a in report.observations if a.item.source == _BREACH_SOURCE]
+    landscape = [
+        a for a in report.observations if a.item.source not in (_VULN_SOURCE, _BREACH_SOURCE)
+    ]
     actors = Counter(a.item.actor for a in landscape if a.item.actor)
     sectors = Counter(a.item.sector for a in landscape if a.item.sector)
     countries = Counter(a.item.country for a in landscape if a.item.country)
     return DigestView(
         alerts=report.alerts,
         vulnerability_watch=sorted(vuln_watch, key=lambda a: a.score, reverse=True),
+        breach_watch=sorted(breach_watch, key=lambda a: a.score, reverse=True),
+        has_breach_source=any(r.source == _BREACH_SOURCE for r in report.collector_results),
         landscape_observations=landscape,
         landscape_total=len(landscape),
         top_actors=actors.most_common(TOP_STATS),

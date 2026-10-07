@@ -357,3 +357,49 @@ def test_alert_carries_infostealer_counts_and_press_coverage() -> None:
     ) in rendered
     assert "- Press coverage (backup link): https://news.example/acme-attack" in rendered
     assert rendered.index("Press coverage") < rendered.index("Reference (backup link)")
+
+
+def _breach_report(status: CollectionStatus = CollectionStatus.OK) -> Report:
+    item = make_item(
+        source="hibp",
+        external_id="AngelOne",
+        title="Angel One: 6,765,054 accounts exposed",
+        body="Exposed data: Email addresses, Names\nCountry (inferred from the website's .in "
+        "domain): IN",
+        summary="In July 2024, Angel One confirmed a data breach.",
+        actor=None,
+        sector=None,
+        country="IN",
+        victim_domain="angelone.in",
+        reference_url="https://haveibeenpwned.com/Breach/AngelOne",
+    )
+    report = _report(alerts=[], observations=[_obs_from(item)])
+    results = [*report.collector_results, CollectResult(source="hibp", status=status)]
+    return report.model_copy(update={"collector_results": results})
+
+
+def test_breach_watch_lists_new_breaches_with_their_summary() -> None:
+    rendered = render_markdown(_breach_report())
+    assert "## Breach watch (1)" in rendered
+    assert "Source: haveibeenpwned.com (CC BY 4.0)." in rendered
+    assert "### [MEDIUM 45] Angel One: 6,765,054 accounts exposed" in rendered
+    assert "- Exposed data: Email addresses, Names" in rendered
+    assert "- Summary: In July 2024, Angel One confirmed a data breach." in rendered
+    assert "- Reference (backup link): https://haveibeenpwned.com/Breach/AngelOne" in rendered
+    # Breaches are neither ransomware landscape nor vulnerabilities.
+    assert "No additional exploited CVEs outside your watchlist this run." in rendered
+    assert "No new signals since last run." in rendered
+
+
+def test_breach_watch_is_hidden_when_the_catalogue_is_not_collected() -> None:
+    rendered = render_markdown(_report(alerts=[], observations=[]))
+    assert "Breach watch" not in rendered
+
+
+def test_breach_trend_line_appears_once_tracked() -> None:
+    history = [
+        DailySummary(day=date(2026, 7, 27) - timedelta(days=i), breaches_added=1) for i in range(3)
+    ]
+    trends = compute_trends(history, date(2026, 7, 27), watch_countries=[])
+    report = _breach_report().model_copy(update={"trends": trends})
+    assert "- Breaches added to HIBP: 3\n" in render_markdown(report)

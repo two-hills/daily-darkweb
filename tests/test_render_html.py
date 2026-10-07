@@ -322,3 +322,36 @@ def test_overview_is_a_compact_link_free_summary_of_a_heavy_report() -> None:
     assert "<a " not in overview
     assert "var(" not in overview
     assert len(overview) < len(full) / 2
+
+
+def test_breach_watch_card_and_overview_line() -> None:
+    item = make_item(
+        source="hibp",
+        external_id="AngelOne",
+        title="Angel <One>: 6,765,054 accounts exposed",
+        body="Exposed data: Email addresses",
+        summary="Data <b>posted</b> to a forum.",
+        actor=None,
+        sector=None,
+        country="IN",
+        reference_url="https://haveibeenpwned.com/Breach/AngelOne",
+    )
+    report = _report(
+        alerts=[], observations=[Alert(item=item, matches=[], score=45, severity=Severity.MEDIUM)]
+    )
+    report = report.model_copy(
+        update={
+            "collector_results": [
+                *report.collector_results,
+                CollectResult(source="hibp", status=CollectionStatus.OK),
+            ]
+        }
+    )
+    html = render_html(report)
+    assert "<h2>Breach watch (1)</h2>" in html
+    assert "Angel &lt;One&gt;: 6,765,054 accounts exposed" in html
+    assert "<b>Summary:</b> Data &lt;b&gt;posted&lt;/b&gt; to a forum.</p>" in html
+    overview = render_html_overview(report)
+    assert "<h2>Breach watch (1)</h2>" in overview
+    assert "Angel &lt;One&gt;: 6,765,054 accounts exposed" in overview
+    assert "Data &lt;b&gt;posted" not in overview  # summaries stay in the attachment

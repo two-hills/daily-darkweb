@@ -147,3 +147,56 @@ class TestComputeTrends:
         history = [_day(0, sectors={"Tech": 2, "Energy": 2, "Retail": 3})]
         trends = compute_trends(history, TODAY, watch_countries=[])
         assert [d.name for d in trends.top_sectors] == ["Retail", "Energy", "Tech"]
+
+
+class TestBreachTrends:
+    """The breach catalogue joined later than the other sources: its counts are tracked
+    separately and compared only once its own history spans both windows."""
+
+    def _hibp_report(self, breaches: int, status: CollectionStatus | None) -> Report:
+        results = [CollectResult(source="ransomware_live", status=CollectionStatus.OK)]
+        if status is not None:
+            results.append(CollectResult(source="hibp", status=status))
+        items = [_alert(source="hibp", external_id=f"B{i}") for i in range(breaches)]
+        return Report(
+            generated_at=datetime(2026, 9, 24, 1, 0, tzinfo=UTC),
+            collector_results=results,
+            alerts=[],
+            observations=items,
+        )
+
+    def test_summary_counts_breaches_only_when_the_catalogue_was_read(self) -> None:
+        assert summarize(self._hibp_report(2, CollectionStatus.OK), TODAY).breaches_added == 2
+        assert summarize(self._hibp_report(0, CollectionStatus.OK), TODAY).breaches_added == 0
+        assert (
+            summarize(self._hibp_report(0, CollectionStatus.FAILED), TODAY).breaches_added is None
+        )
+        assert summarize(self._hibp_report(0, None), TODAY).breaches_added is None
+
+    def test_same_day_runs_add_up_and_unknown_stays_unknown(self) -> None:
+        merged = merge_history([_day(0, breaches_added=2)], _day(0, breaches_added=1))
+        assert merged[0].breaches_added == 3
+        merged = merge_history([_day(0)], _day(0, breaches_added=1))
+        assert merged[0].breaches_added == 1
+        assert merge_history([_day(0)], _day(0))[0].breaches_added is None
+
+    def test_no_catalogue_history_means_no_breach_trend(self) -> None:
+        trends = compute_trends([_day(i, ransomware_claims=1) for i in range(14)], TODAY, [])
+        assert trends.breaches_added is None
+
+    def test_young_catalogue_history_reports_counts_without_comparison(self) -> None:
+        # 20 days of ransomware history; the catalogue only joined three days ago.
+        history = [
+            _day(i, ransomware_claims=1, **({"breaches_added": 1} if i < 3 else {}))
+            for i in range(20)
+        ]
+        trends = compute_trends(history, TODAY, [])
+        assert trends.has_previous  # ransomware compares week over week…
+        assert trends.breaches_added is not None
+        assert (trends.breaches_added.current, trends.breaches_added.previous) == (3, None)
+
+    def test_catalogue_spanning_both_windows_compares(self) -> None:
+        history = [_day(i, breaches_added=1 if i < 7 else 2) for i in range(14)]
+        trends = compute_trends(history, TODAY, [])
+        assert trends.breaches_added is not None
+        assert (trends.breaches_added.current, trends.breaches_added.previous) == (7, 14)

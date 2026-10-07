@@ -11,10 +11,18 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 
-from daily_darkweb.core.models import CountDelta, DailySummary, KevEntry, Report, Trends
+from daily_darkweb.core.models import (
+    CollectionStatus,
+    CountDelta,
+    DailySummary,
+    KevEntry,
+    Report,
+    Trends,
+)
 
 RANSOMWARE_SOURCE = "ransomware_live"
 KEV_SOURCE = "cisa_kev"
+BREACH_SOURCE = "hibp"
 WINDOW_DAYS = 7
 HISTORY_KEEP_DAYS = 60
 DUE_SOON_DAYS = 7
@@ -41,6 +49,15 @@ def summarize(report: Report, day: date) -> DailySummary:
         elif item.source == KEV_SOURCE:
             due = item.due_date.date() if item.due_date else None
             kev.append(KevEntry(cve_id=item.external_id, title=item.title, due_date=due))
+    # Breach counts only for runs that actually read the catalogue: an absent or failed
+    # collector leaves None ("unknown"), never a misleading zero.
+    breaches_seen = any(
+        r.source == BREACH_SOURCE and r.status is CollectionStatus.OK
+        for r in report.collector_results
+    )
+    breaches = sum(
+        1 for a in [*report.alerts, *report.observations] if a.item.source == BREACH_SOURCE
+    )
     return DailySummary(
         day=day,
         complete=not report.has_failures,
@@ -49,6 +66,7 @@ def summarize(report: Report, day: date) -> DailySummary:
         sectors=dict(sectors),
         countries=dict(countries),
         kev_added=kev,
+        breaches_added=breaches if breaches_seen else None,
     )
 
 
@@ -120,10 +138,36 @@ def compute_trends(
             sum(len(s.kev_added) for s in previous),
         ),
         kev_due_soon=_due_soon(history, today),
+        breaches_added=_breaches_delta(history, current, previous, previous_start),
+    )
+
+
+def _breaches_delta(
+    history: list[DailySummary],
+    current: list[DailySummary],
+    previous: list[DailySummary],
+    previous_start: date,
+) -> CountDelta | None:
+    """Breach additions, compared only once the catalogue's *own* history spans both
+    windows — it was added later than the other sources."""
+    tracked = [s.day for s in history if s.breaches_added is not None]
+    if not tracked:
+        return None
+    return CountDelta(
+        name="breaches added",
+        current=sum(s.breaches_added or 0 for s in current),
+        previous=(
+            sum(s.breaches_added or 0 for s in previous) if min(tracked) <= previous_start else None
+        ),
     )
 
 
 def _add(a: DailySummary, b: DailySummary) -> DailySummary:
+    breaches = (
+        None
+        if a.breaches_added is None and b.breaches_added is None
+        else (a.breaches_added or 0) + (b.breaches_added or 0)
+    )
     return DailySummary(
         day=a.day,
         complete=a.complete and b.complete,
@@ -132,6 +176,7 @@ def _add(a: DailySummary, b: DailySummary) -> DailySummary:
         sectors=dict(Counter(a.sectors) + Counter(b.sectors)),
         countries=dict(Counter(a.countries) + Counter(b.countries)),
         kev_added=_unique_kev([*a.kev_added, *b.kev_added]),
+        breaches_added=breaches,
     )
 
 
