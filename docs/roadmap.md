@@ -1,6 +1,14 @@
 # Roadmap
 
-**Current status (2026-10-09):** New **`vulncheck_kev` collector** — the early-warning
+**Current status (2026-10-10):** Diagnostics now go to stderr. structlog was never
+configured, and its default writes to stdout — the digest's own stream — so a failing
+collector's warning opened the digest: `--format json` stopped parsing, `ops/run_daily.sh`
+archived it inside the `.md`, and the Routine prompt had to tell the model to skip it.
+`cli.main()` now routes structlog to stderr (UTC timestamps, colours only on a
+terminal), with a regression test that fails without the fix. Routine prompt v8 drops the
+workaround. 225 tests green. Next: LLM alert ranking.
+
+**Previous status (2026-10-09):** New **`vulncheck_kev` collector** — the early-warning
 layer: exploited CVEs that VulnCheck KEV lists but CISA KEV doesn't (yet), ~4 a day (116
 in the last 30 days). Watchlist matches become full alerts (on live data: CVE-2024-49766,
 werkzeug, flagged for ransomware use and not in CISA KEV); the rest are one line each
@@ -9,8 +17,7 @@ catalogues carry a CVE in the same run (sync lag), CISA's entry wins — it has 
 federal deadline. Bearer token via the environment's API credentials (cloud) or
 `VULNCHECK_API_TOKEN` (local); newest first via `sort=date_added`, at most six pages.
 Trend line for VulnCheck-only additions (tracked per source, like HIBP). Routine prompt
-v7: the AI notes call out early warnings. 224 tests green. Phase 2 sources are complete;
-next: structlog to stderr, then LLM alert ranking.
+v7: the AI notes call out early warnings. 224 tests green. Phase 2 sources are complete.
 
 **Previous status (2026-10-08):** New **`hibp` collector**: Have I Been Pwned's public
 breach catalogue (no key, CC BY 4.0, credited). Every breach newly loaded into HIBP shows
