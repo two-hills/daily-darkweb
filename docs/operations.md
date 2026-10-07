@@ -76,10 +76,18 @@ editing that file, paste it into the Routine again (replacing `<RECIPIENT_EMAIL>
 Prerequisites, each learned from a failed run:
 
 - **Network:** the Routine's environment must allow the collector hosts. With the
-  default *Trusted* access they fail with `ProxyError: 403`. Set Network access to
-  *Custom*, add `api.ransomware.live` and `www.cisa.gov`, and keep *Also include default
-  list of common package managers* ticked (uv needs PyPI). New collectors need their
-  API host added too.
+  default *Trusted* access they fail with `ProxyError: 403`. Add `api-pro.ransomware.live`
+  and `www.cisa.gov` to the allowed domains (*Custom* access in older apps) and keep the
+  package-managers box ticked (uv needs PyPI). New collectors need their API host added
+  too. (`api.ransomware.live`, the keyless v2 API, is no longer used.)
+- **API keys:** ransomware.live's API PRO needs a free key (ransomware.live/my). Store it
+  in the environment's **API credentials** (*Network secrets* in newer apps): allowed
+  website `api-pro.ransomware.live`, header name `X-API-KEY`, no prefix. The proxy adds it
+  to each request after it leaves the session, so the Routine — which reads untrusted
+  scraped text — never sees it. Without that section (Team/Enterprise plans), set
+  `RANSOMWARE_LIVE_API_KEY` as an environment variable instead. A missing or wrong key
+  shows as `ransomware_live: FAILED — API key missing or rejected`. Local runs: put
+  `RANSOMWARE_LIVE_API_KEY` in `.env`.
 - **GitHub push:** the Routine commits `.state/seen.json` to `main`. That needs the
   Claude GitHub App installed on this repository — a public repo clones without it, but
   every push is rejected with 403.
@@ -93,19 +101,22 @@ Prerequisites, each learned from a failed run:
   the prompt tells the Routine not to publish its own branch — earlier runs left one
   obsolete `claude/*` branch per day on GitHub (cleaned up on 2026-09-30).
 - **Email:** SMTP cannot work in the cloud (no raw-TCP egress), so the Routine sends the
-  HTML digest with the Gmail connector: HTML body plus the same file attached (skipped
-  above 25 KB). It emails every run, clean ones included, so a missing email always
-  means the run itself failed.
+  HTML digest with the Gmail connector. It emails every run, clean ones included, so a
+  missing email always means the run itself failed.
 - **AI analyst notes:** the Routine collects with `--report-out`, writes
   `digests/notes.json` from the digest, then re-renders with
   `--from-report … --notes …` (no re-collection, state untouched). The notes are
   validated (no links, bounded size) and labelled "AI generated"; rejected notes show
   as "unavailable" rather than blocking the digest. The notes use the digest's
   threat-actor profiles to tie recommended actions to how the active groups get in.
-- **Attachment:** required whenever the HTML is ≤ 25,000 bytes (a Routine once skipped it
-  "to avoid copy corruption"; the prompt now forbids that). Threat-actor profiles make
-  the HTML ≈25–30 KB on busy days, and only then is it skipped — the inline body carries
-  the same content and renders the same, since the HTML is email-safe (no CSS variables).
+- **Email layout by report size:** the Routine copies every byte it sends (the HTML body,
+  and the attachment as base64), so large reports cost time and risk copy slips. Hence:
+  ≤ 25,000 bytes → the full report is the body and is attached; 25,001–60,000 bytes →
+  the body is the overview (`digests/overview.html`: status, AI notes, one line per alert
+  and exploited CVE, trends) and the full report is attached; > 60,000 bytes → the full
+  report is the body, without attachment. The attachment is required in the first two
+  layouts (a Routine once skipped it "to avoid copy corruption"; the prompt forbids that).
+  Both HTML files are email-safe (no CSS variables).
 
 ## Change the schedule / uninstall
 

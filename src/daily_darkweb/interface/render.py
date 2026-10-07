@@ -25,9 +25,12 @@ from daily_darkweb.interface.digest_view import (
     build_view,
     defense_tactics,
     detail_lines,
+    exploited_cve_lines,
     format_delta,
     history_note,
+    infostealer_note,
     item_description,
+    profile_facts,
     profiles_by_group,
     tactic_line,
     tool_lines,
@@ -117,10 +120,15 @@ def _render_alert(alert: Alert, profiled: dict[str, GroupProfile]) -> list[str]:
         if item.actor:
             known = item.actor.lower() in profiled
             lines.append(f"- Group: {item.actor}" + (" — profile below" if known else ""))
+        exposure = infostealer_note(item)
+        if exposure:
+            lines.append(f"- Infostealer exposure: {exposure}")
     else:
         lines.extend(f"- {line}" for line in detail_lines(item))
     if item.due_date:
         lines.append(f"- Patch by: {item.due_date:%Y-%m-%d}")
+    if item.press_url:
+        lines.append(f"- Press coverage (backup link): {item.press_url}")
     if item.reference_url:
         lines.append(f"- Reference (backup link): {item.reference_url}")
     lines.append("")
@@ -133,24 +141,23 @@ def _render_profiles(report: Report) -> list[str]:
     lines = [f"## {PROFILES_TITLE} ({len(report.group_profiles)})", PROFILES_NOTE, ""]
     for profile in report.group_profiles:
         lines.append(f"### {profile.name}")
-        facts = []
-        if profile.first_seen:
-            facts.append(f"tracked since {profile.first_seen}")
-        if profile.aliases:
-            facts.append(f"also known as {', '.join(profile.aliases)}")
+        facts = profile_facts(profile)
         if facts:
             lines.append(f"_{'; '.join(facts)}_")
         if profile.description:
             lines.append(profile.description)
         tactics = defense_tactics(profile)
-        for tactic in tactics:
-            if tactic.name.lower() == "initial access":
-                lines.append("- How they get in (Initial Access):")
-                for t in tactic.techniques:
-                    details = f": {t.details}" if t.details else ""
-                    lines.append(f"  - {t.name} ({t.technique_id}){details}")
-            else:
-                lines.append(f"- {tactic_line(tactic)}")
+        initial = [t for t in tactics if t.name.lower() == "initial access"]
+        for tactic in initial:
+            lines.append("- How they get in (Initial Access):")
+            for t in tactic.techniques:
+                details = f": {t.details}" if t.details else ""
+                lines.append(f"  - {t.name} ({t.technique_id}){details}")
+        cves = exploited_cve_lines(profile)
+        if cves:
+            lines.append("- Vulnerabilities they exploit (highest CVSS first):")
+            lines.extend(f"  - {cve}" for cve in cves)
+        lines.extend(f"- {tactic_line(t)}" for t in tactics if t.name.lower() != "initial access")
         if not tactics:
             lines.append("- No ATT&CK technique mapping published for this group yet.")
         tools = tool_lines(profile)

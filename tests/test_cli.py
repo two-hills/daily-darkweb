@@ -143,6 +143,7 @@ def _make_args(tmp_path: Path) -> argparse.Namespace:
         no_state=False,
         format="json",
         html_out=None,
+        overview_out=None,
         email=False,
         report_out=None,
         from_report=None,
@@ -284,6 +285,7 @@ async def test_notes_are_added_by_re_rendering_a_saved_report_offline(
     render_args.notes = str(notes_path)
     render_args.format = "md"
     render_args.html_out = str(tmp_path / "out" / "digest.html")
+    render_args.overview_out = str(tmp_path / "out" / "overview.html")
     exit_code = await _run(render_args, now=NOW + timedelta(hours=1))
 
     out = capsys.readouterr().out
@@ -293,6 +295,9 @@ async def test_notes_are_added_by_re_rendering_a_saved_report_offline(
     assert "## Trends (last 7 days)" in out  # trends survive the JSON round trip
     assert "CVE-2026-80001" in out
     assert ">AI generated</span>" in (tmp_path / "out" / "digest.html").read_text("utf-8")
+    overview = (tmp_path / "out" / "overview.html").read_text("utf-8")
+    assert "Quiet day" in overview  # the AI notes lead the overview too
+    assert "CVE-2026-80001" in overview
     assert respx.calls.call_count == calls_before  # no network on re-render
     assert state_path.read_bytes() == state_before  # state untouched
 
@@ -339,7 +344,7 @@ async def test_missing_notes_file_is_reported_not_fatal(
     assert "notes: cannot read" in captured.err
 
 
-RL_BASE = "https://rl.test.invalid/v2"
+RL_BASE = "https://rl.test.invalid"
 
 
 def _write_ransomware_config(config_dir: Path) -> None:
@@ -365,7 +370,7 @@ def _victim(name: str, group: str, sector: str) -> dict[str, str]:
         "country": "TH",
         "description": "Claimed 10 GB.",
         "attackdate": "2026-09-22T10:00:00+00:00",
-        "url": f"https://www.ransomware.live/id/{name}",
+        "permalink": f"https://www.ransomware.live/id/{name}",
     }
 
 
@@ -374,16 +379,21 @@ async def test_collect_run_attaches_profiles_and_notes_failed_lookups(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _write_ransomware_config(tmp_path / "config")
-    respx.get(f"{RL_BASE}/recentvictims").respond(
-        json=[_victim("a", "qilin", "Healthcare"), _victim("b", "ghost", "Retail")]
+    respx.get(f"{RL_BASE}/victims/recent").respond(
+        json={
+            "client": "subscriber@example.com",
+            "victims": [_victim("a", "qilin", "Healthcare"), _victim("b", "ghost", "Retail")],
+        }
     )
     respx.get(f"{RL_BASE}/group/qilin").respond(
         json={
-            "name": "qilin",
+            "group": "qilin",
+            "client": "subscriber@example.com",
             "description": "Double extortion.",
             "locations": [{"fqdn": "c" * 56 + ".onion"}],
             "ttps": [],
-            "tools": [],
+            "tools": {},
+            "vulnerabilities": [{"CVE": "CVE-2024-21762", "Vendor": "Fortinet", "CVSS": 9.8}],
         }
     )
     respx.get(f"{RL_BASE}/group/ghost").respond(status_code=404)
@@ -394,5 +404,7 @@ async def test_collect_run_attaches_profiles_and_notes_failed_lookups(
     report = json.loads(out)
     assert exit_code == 1  # the Healthcare victim alerts; profile lookups never change this
     assert [p["name"] for p in report["group_profiles"]] == ["qilin"]
+    assert report["group_profiles"][0]["exploited_cves"][0]["cve_id"] == "CVE-2024-21762"
     assert report["profile_errors"] == ["ghost (HTTPStatusError)"]
     assert ".onion" not in out
+    assert "subscriber@example.com" not in out  # the API's account field is never kept

@@ -6,14 +6,28 @@ from pathlib import Path
 from typing import Self
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from daily_darkweb.core.models import Watchlist
 
 
+class ApiKeys(BaseSettings):
+    """API keys for local runs, from env/.env — never from the committed config.
+
+    Cloud Routine runs leave these unset: the session's network proxy adds each key to
+    requests for its API host, so no key ever enters the session (docs/operations.md).
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    ransomware_live_api_key: SecretStr | None = None
+
+
 class RansomwareLiveConfig(BaseModel):
     enabled: bool = True
-    base_url: str = "https://api.ransomware.live/v2"
+    # API PRO (free key). The keyless v2 API is personal-use only and rate-limited.
+    base_url: str = "https://api-pro.ransomware.live"
     timeout_seconds: float = 15.0
     max_items: int = 100
     # Threat-actor profiles fetched per run (alert groups first); 0 disables the lookups.

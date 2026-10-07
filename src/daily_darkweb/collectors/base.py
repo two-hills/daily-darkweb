@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 import httpx
@@ -49,8 +50,16 @@ def _parse_retry_after(header: str | None) -> float | None:
         return None
 
 
-async def fetch_json(client: httpx.AsyncClient, url: str, timeout: float) -> Any:
-    """GET a JSON document with transient-only retry (429/5xx/timeouts, honoring Retry-After)."""
+async def fetch_json(
+    client: httpx.AsyncClient,
+    url: str,
+    timeout: float,
+    headers: Mapping[str, str] | None = None,
+) -> Any:
+    """GET a JSON document with transient-only retry (429/5xx/timeouts, honoring Retry-After).
+
+    `headers` apply to this request only, so a source's API key never reaches another host.
+    """
     async for attempt in AsyncRetrying(
         retry=retry_if_exception_type(_RETRYABLE),
         stop=stop_after_attempt(3),
@@ -58,7 +67,7 @@ async def fetch_json(client: httpx.AsyncClient, url: str, timeout: float) -> Any
         reraise=True,
     ):
         with attempt:
-            response = await client.get(url, timeout=timeout)
+            response = await client.get(url, timeout=timeout, headers=headers)
             if response.status_code == 429 or response.status_code >= 500:
                 retry_after = _parse_retry_after(response.headers.get("Retry-After"))
                 raise TransientHTTPError(response.status_code, retry_after)
