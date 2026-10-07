@@ -20,6 +20,14 @@ hibp:
   recent_days: 30     # on the date HIBP loaded the breach; auto-widened like cisa_kev
   max_items: 50
 
+# VulnCheck KEV: exploited CVEs CISA KEV doesn't list yet — the early-warning layer.
+# Free community token, sent as "Authorization: Bearer …": cloud runs get it from the
+# environment's API credentials, local runs from VULNCHECK_API_TOKEN in .env.
+vulncheck_kev:
+  enabled: true
+  recent_days: 7      # ~4 such CVEs a day; auto-widened like cisa_kev
+  max_items: 50
+
 # Gated: enabling this raises a config error until the project has documented
 # legal approval for direct onion collection (see docs/architecture.md).
 tor_onion:

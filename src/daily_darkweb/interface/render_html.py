@@ -24,6 +24,10 @@ from daily_darkweb.interface.digest_view import (
     AI_NOTES_TITLE,
     BREACH_WATCH_NOTE,
     BREACH_WATCH_TITLE,
+    EARLY_WARNING_MARK,
+    EARLY_WARNINGS_NOTE,
+    EARLY_WARNINGS_SHOWN,
+    EARLY_WARNINGS_TITLE,
     OVERVIEW_ITEMS,
     OVERVIEW_NOTE,
     OVERVIEW_TITLE,
@@ -35,10 +39,12 @@ from daily_darkweb.interface.digest_view import (
     build_view,
     defense_tactics,
     detail_lines,
+    early_warning_line,
     exploited_cve_lines,
     format_delta,
     history_note,
     infostealer_note,
+    is_early_warning,
     item_description,
     profile_facts,
     profiles_by_group,
@@ -166,7 +172,7 @@ def render_html_overview(report: Report) -> str:
         _render_collector_status(report),
         _render_notes(report),
         _overview_section("Watchlist alerts", view.alerts),
-        _overview_section("Vulnerability watch", view.vulnerability_watch),
+        _overview_section("Vulnerability watch", [*view.vulnerability_watch, *view.early_warnings]),
         (
             _overview_section(BREACH_WATCH_TITLE, view.breach_watch)
             if view.has_breach_source
@@ -195,6 +201,8 @@ def _overview_section(title: str, alerts: list[Alert]) -> str:
         context = [x for x in (item.sector, item.country) if x]
         if item.due_date:
             context.append(f"patch by {item.due_date:%Y-%m-%d}")
+        if is_early_warning(item):
+            context.append(EARLY_WARNING_MARK)
         if alert.matches:
             context.append("matched " + ", ".join(m.watch_value for m in alert.matches))
         suffix = f"<span class='snippet'> — {escape(' · '.join(context))}</span>" if context else ""
@@ -219,12 +227,7 @@ def render_html(report: Report) -> str:
             view.alerts,
             profiled,
         ),
-        _render_alert_section(
-            "Vulnerability watch",
-            "Every new confirmed-exploited CVE from CISA KEV, beyond your watchlist.",
-            view.vulnerability_watch,
-            profiled,
-        ),
+        _render_vulnerability_watch(view, profiled),
         (
             _render_alert_section(
                 BREACH_WATCH_TITLE, BREACH_WATCH_NOTE, view.breach_watch, profiled
@@ -237,6 +240,36 @@ def render_html(report: Report) -> str:
         "</main></body></html>",
     ]
     return "".join(parts)
+
+
+def _render_vulnerability_watch(view: DigestView, profiled: dict[str, GroupProfile]) -> str:
+    total = len(view.vulnerability_watch) + len(view.early_warnings)
+    html = (
+        f"<h2>Vulnerability watch ({total})</h2><p class='section-note'>Every new "
+        "confirmed-exploited CVE from CISA KEV, beyond your watchlist.</p>"
+    )
+    if view.vulnerability_watch:
+        html += "".join(_render_alert_card(a, profiled) for a in view.vulnerability_watch)
+    else:
+        html += "<p class='empty'>Nothing new from CISA KEV this run.</p>"
+    if not view.has_early_warning_source:
+        return html
+    html += (
+        f"<h3>{escape(EARLY_WARNINGS_TITLE)} ({len(view.early_warnings)})</h3>"
+        f"<p class='section-note'>{escape(EARLY_WARNINGS_NOTE)}</p>"
+    )
+    if not view.early_warnings:
+        return html + "<p class='empty'>None new outside your watchlist this run.</p>"
+    rows = []
+    for alert in view.early_warnings[:EARLY_WARNINGS_SHOWN]:
+        line = escape(early_warning_line(alert))
+        if alert.item.reference_url:
+            line = _link(alert.item.reference_url, line)
+        rows.append(f"<li>[{alert.severity.value}] {line}</li>")
+    more = len(view.early_warnings) - EARLY_WARNINGS_SHOWN
+    if more > 0:
+        rows.append(f"<li class='empty'>+{more} more</li>")
+    return html + "<ul class='plain'>" + "".join(rows) + "</ul>"
 
 
 def _render_collector_status(report: Report) -> str:
@@ -413,6 +446,11 @@ def _render_trends(trends: Trends) -> str:
         stats.append(f"<span class='due'>{label}</span> {due}")
     if trends.breaches_added:
         stats.append(f"Breaches added to HIBP: {format_delta(trends.breaches_added)}")
+    if trends.vulncheck_added:
+        stats.append(
+            "Exploited CVEs added to VulnCheck KEV, not in CISA KEV: "
+            f"{format_delta(trends.vulncheck_added)}"
+        )
     html = f"<h2>Trends (last {trends.window_days} days)</h2>"
     html += "".join(f"<p class='stats'>{line}</p>" for line in stats)
     return html + f"<p class='section-note'>{history_note(trends)}</p>"

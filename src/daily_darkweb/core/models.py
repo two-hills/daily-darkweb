@@ -138,9 +138,10 @@ class DailySummary(BaseModel):
     sectors: dict[str, int] = Field(default_factory=dict)
     countries: dict[str, int] = Field(default_factory=dict)
     kev_added: list[KevEntry] = Field(default_factory=list)
-    # None when the breach catalogue was not collected that day (older history, source
-    # disabled or failed), so trends never compare against days nobody looked.
+    # None when that source was not collected that day (older history, source disabled
+    # or failed), so trends never compare against days nobody looked.
     breaches_added: int | None = None
+    vulncheck_added: int | None = None  # exploited CVEs VulnCheck lists, CISA doesn't (yet)
 
 
 class CountDelta(BaseModel):
@@ -166,6 +167,7 @@ class Trends(BaseModel):
     kev_added: CountDelta
     kev_due_soon: list[KevEntry]
     breaches_added: CountDelta | None = None  # None until the breach catalogue has history
+    vulncheck_added: CountDelta | None = None  # None until VulnCheck KEV has history
 
     @property
     def has_previous(self) -> bool:

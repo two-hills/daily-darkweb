@@ -12,6 +12,8 @@ SOURCE_BASE: dict[str, int] = {
     "cisa_kev": 45,
     # Confirmed data exposure, but reported days to months after the incident.
     "hibp": 35,
+    # Exploitation reported publicly and vetted by VulnCheck, not (yet) confirmed by CISA.
+    "vulncheck_kev": 42,
 }
 DEFAULT_SOURCE_BASE = 30
 

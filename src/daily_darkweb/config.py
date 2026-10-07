@@ -22,6 +22,7 @@ class ApiKeys(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     ransomware_live_api_key: SecretStr | None = None
+    vulncheck_api_token: SecretStr | None = None
 
 
 class RansomwareLiveConfig(BaseModel):
@@ -54,6 +55,18 @@ class HibpConfig(BaseModel):
     max_items: int = 50
 
 
+class VulnCheckKevConfig(BaseModel):
+    """VulnCheck KEV: exploited CVEs CISA KEV doesn't list yet (free community token)."""
+
+    enabled: bool = True
+    base_url: str = "https://api.vulncheck.com/v3"
+    timeout_seconds: float = 30.0
+    # ~4 VulnCheck-only additions a day: a short floor keeps the first run's backfill
+    # readable; the window still widens to cover gaps between runs.
+    recent_days: int = 7
+    max_items: int = 50
+
+
 class TorOnionConfig(BaseModel):
     """Placeholder. Stays disabled until a sanctioned CTI program with legal cover exists."""
 
@@ -73,6 +86,7 @@ class SourcesConfig(BaseModel):
     ransomware_live: RansomwareLiveConfig = RansomwareLiveConfig()
     cisa_kev: CisaKevConfig = CisaKevConfig()
     hibp: HibpConfig = HibpConfig()
+    vulncheck_kev: VulnCheckKevConfig = VulnCheckKevConfig()
     tor_onion: TorOnionConfig = TorOnionConfig()
 
 

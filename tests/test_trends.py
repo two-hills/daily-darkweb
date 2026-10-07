@@ -200,3 +200,20 @@ class TestBreachTrends:
         trends = compute_trends(history, TODAY, [])
         assert trends.breaches_added is not None
         assert (trends.breaches_added.current, trends.breaches_added.previous) == (7, 14)
+
+
+def test_vulncheck_additions_are_tracked_like_breaches() -> None:
+    report = Report(
+        generated_at=datetime(2026, 9, 24, 1, 0, tzinfo=UTC),
+        collector_results=[CollectResult(source="vulncheck_kev", status=CollectionStatus.OK)],
+        alerts=[],
+        observations=[
+            _alert(source="vulncheck_kev", external_id=f"CVE-2026-{i}") for i in range(3)
+        ],
+    )
+    summary = summarize(report, TODAY)
+    assert (summary.vulncheck_added, summary.breaches_added) == (3, None)
+    trends = compute_trends(merge_history([], summary), TODAY, [])
+    assert trends.vulncheck_added is not None
+    assert (trends.vulncheck_added.current, trends.vulncheck_added.previous) == (3, None)
+    assert trends.breaches_added is None

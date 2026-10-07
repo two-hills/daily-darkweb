@@ -132,6 +132,8 @@ def _write_config(config_dir: Path) -> None:
         "  recent_days: 30\n"
         "  max_items: 200\n"
         "hibp:\n"
+        "  enabled: false\n"
+        "vulncheck_kev:\n"
         "  enabled: false\n",
         encoding="utf-8",
     )
@@ -360,6 +362,8 @@ def _write_ransomware_config(config_dir: Path) -> None:
         "cisa_kev:\n"
         "  enabled: false\n"
         "hibp:\n"
+        "  enabled: false\n"
+        "vulncheck_kev:\n"
         "  enabled: false\n",
         encoding="utf-8",
     )
@@ -441,7 +445,7 @@ async def test_hibp_run_covers_the_gap_and_feeds_the_breach_watch_and_trends(
     (config_dir / "sources.yaml").write_text(
         "ransomware_live:\n  enabled: false\ncisa_kev:\n  enabled: false\n"
         f'hibp:\n  enabled: true\n  base_url: "{HIBP_BASE}"\n  timeout_seconds: 1.0\n'
-        "  recent_days: 30\n",
+        "  recent_days: 30\nvulncheck_kev:\n  enabled: false\n",
         encoding="utf-8",
     )
     (config_dir / "watchlist.yaml").write_text(
@@ -470,3 +474,51 @@ async def test_hibp_run_covers_the_gap_and_feeds_the_breach_watch_and_trends(
     assert "SpamList" not in captured.out
     assert "- Breaches added to HIBP: 1" in captured.out
     assert "## Breach watch (0)" in captured.out  # its one breach became an alert instead
+
+
+VC_BASE = "https://vulncheck.test.invalid/v3"
+
+
+@respx.mock
+async def test_vulncheck_token_reaches_only_vulncheck_and_cisa_wins_overlaps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VULNCHECK_API_TOKEN", "env-token")
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "sources.yaml").write_text(
+        "ransomware_live:\n  enabled: false\nhibp:\n  enabled: false\n"
+        f'cisa_kev:\n  enabled: true\n  feed_url: "{FEED_URL}"\n  timeout_seconds: 1.0\n'
+        f'vulncheck_kev:\n  enabled: true\n  base_url: "{VC_BASE}"\n  timeout_seconds: 1.0\n',
+        encoding="utf-8",
+    )
+    (config_dir / "watchlist.yaml").write_text("keywords: []\n", encoding="utf-8")
+    _write_state(tmp_path, _State(last_success=NOW - timedelta(days=1)))
+    kev = respx.get(FEED_URL).respond(json={"vulnerabilities": [RECENT_VULN]})
+    vulncheck = respx.get(f"{VC_BASE}/index/vulncheck-kev").respond(
+        json={
+            "_meta": {"total_pages": 1},
+            "data": [
+                # Not yet marked as CISA-listed on VulnCheck's side (sync lag) …
+                {"cve": ["CVE-2026-80001"], "date_added": "2026-09-21T00:00:00Z"},
+                {
+                    "cve": ["CVE-2026-80002"],
+                    "date_added": "2026-09-22T00:00:00Z",
+                    "vulnerabilityName": "Router RCE",
+                },
+            ],
+        }
+    )
+
+    exit_code = await _run(_make_args(tmp_path), now=NOW)
+
+    report = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert vulncheck.calls.last.request.headers["Authorization"] == "Bearer env-token"
+    assert "Authorization" not in kev.calls.last.request.headers  # the token stays put
+    reported = sorted(
+        (o["item"]["source"], o["item"]["external_id"]) for o in report["observations"]
+    )
+    # … so CISA's entry is the one reported, once.
+    assert reported == [("cisa_kev", "CVE-2026-80001"), ("vulncheck_kev", "CVE-2026-80002")]
+    assert report["trends"]["vulncheck_added"]["current"] == 1
