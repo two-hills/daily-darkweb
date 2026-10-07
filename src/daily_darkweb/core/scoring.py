@@ -10,6 +10,8 @@ SOURCE_BASE: dict[str, int] = {
     "ransomware_live": 40,
     # KEV entries are confirmed exploited-in-the-wild, the strongest single signal we ingest.
     "cisa_kev": 45,
+    # Confirmed data exposure, but reported days to months after the incident.
+    "hibp": 35,
 }
 DEFAULT_SOURCE_BASE = 30
 

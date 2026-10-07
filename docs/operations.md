@@ -76,8 +76,9 @@ editing that file, paste it into the Routine again (replacing `<RECIPIENT_EMAIL>
 Prerequisites, each learned from a failed run:
 
 - **Network:** the Routine's environment must allow the collector hosts. With the
-  default *Trusted* access they fail with `ProxyError: 403`. Add `api-pro.ransomware.live`
-  and `www.cisa.gov` to the allowed domains (*Custom* access in older apps) and keep the
+  default *Trusted* access they fail with `ProxyError: 403`. Add `api-pro.ransomware.live`,
+  `www.cisa.gov` and `haveibeenpwned.com` to the allowed domains (*Custom* access in older
+  apps) and keep the
   package-managers box ticked (uv needs PyPI). New collectors need their API host added
   too. (`api.ransomware.live`, the keyless v2 API, is no longer used.)
 - **API keys:** ransomware.live's API PRO needs a free key (ransomware.live/my). Store it

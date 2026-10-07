@@ -22,6 +22,8 @@ from daily_darkweb.core.trends import DUE_SOON_DAYS, RANSOMWARE_SOURCE
 from daily_darkweb.interface.digest_view import (
     AI_NOTES_DISCLAIMER,
     AI_NOTES_TITLE,
+    BREACH_WATCH_NOTE,
+    BREACH_WATCH_TITLE,
     OVERVIEW_ITEMS,
     OVERVIEW_NOTE,
     OVERVIEW_TITLE,
@@ -165,6 +167,11 @@ def render_html_overview(report: Report) -> str:
         _render_notes(report),
         _overview_section("Watchlist alerts", view.alerts),
         _overview_section("Vulnerability watch", view.vulnerability_watch),
+        (
+            _overview_section(BREACH_WATCH_TITLE, view.breach_watch)
+            if view.has_breach_source
+            else ""
+        ),
         _render_trends(report.trends) if report.trends else "",
         "<h2>Threat landscape (ransomware, new signals)</h2>" + landscape,
         (
@@ -217,6 +224,13 @@ def render_html(report: Report) -> str:
             "Every new confirmed-exploited CVE from CISA KEV, beyond your watchlist.",
             view.vulnerability_watch,
             profiled,
+        ),
+        (
+            _render_alert_section(
+                BREACH_WATCH_TITLE, BREACH_WATCH_NOTE, view.breach_watch, profiled
+            )
+            if view.has_breach_source
+            else ""
         ),
         _render_landscape(view),
         _render_profiles(report),
@@ -275,6 +289,8 @@ def _render_alert_card(alert: Alert, profiled: dict[str, GroupProfile]) -> str:
         lines.extend(_ransomware_details(item, profiled))
     else:
         lines.extend(f"<p class='detail'>{escape(line)}</p>" for line in detail_lines(item))
+        if item.summary:
+            lines.append(f"<p class='detail'><b>Summary:</b> {escape(item.summary)}</p>")
     if item.press_url:
         lines.append(_backup_link(item.press_url, "Press coverage (backup link)"))
     if item.reference_url:
@@ -395,6 +411,8 @@ def _render_trends(trends: Trends) -> str:
         due = ", ".join(f"{escape(e.cve_id)} (due {e.due_date})" for e in trends.kev_due_soon)
         label = f"KEV deadlines in the next {DUE_SOON_DAYS} days:"
         stats.append(f"<span class='due'>{label}</span> {due}")
+    if trends.breaches_added:
+        stats.append(f"Breaches added to HIBP: {format_delta(trends.breaches_added)}")
     html = f"<h2>Trends (last {trends.window_days} days)</h2>"
     html += "".join(f"<p class='stats'>{line}</p>" for line in stats)
     return html + f"<p class='section-note'>{history_note(trends)}</p>"

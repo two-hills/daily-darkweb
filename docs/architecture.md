@@ -20,8 +20,8 @@ interface (cli, digest_view, render_md/html, state file)  I/O allowed
 
 `interface/digest_view.py` is a format-agnostic view model shared by both renderers: it
 splits observations by source so `cisa_kev` entries (a handful per week) always get their
-own "Vulnerability watch" section instead of competing with `ransomware_live` volume
-(dozens per day) for a shared top-N slot. `render.py` (markdown) and `render_html.py`
+own "Vulnerability watch" section and `hibp` entries their own "Breach watch", instead of
+competing with `ransomware_live` volume (dozens per day) for a shared top-N slot. `render.py` (markdown) and `render_html.py`
 (self-contained static page, no server) both format the same `DigestView` — add a third
 output format by writing one more renderer against it, not by touching the pipeline.
 
@@ -58,13 +58,15 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   to that source only. A missing or rejected key is an explicit FAILED, never retried.
 - **State:** `.state/seen.json` holds only dedup hashes (capped at 50k keys) plus
   `last_success`, the timestamp of the last run with zero collector failures. The CLI
-  stretches the KEV lookback window to `max(recent_days, days since last_success)`
+  stretches the KEV and HIBP lookback windows to `max(recent_days, days since last_success)`
   (capped at 365d), so a pipeline that sat idle — or failed — for longer than the
   configured window still reports everything added in between instead of silently
   skipping it. Failed runs never advance the timestamp. It also keeps `history`: one
   compact per-day summary (counts per group/sector/country, KEV additions with due
-  dates; 60 days) from which `core/trends.py` computes the digest's Trends section —
-  week-over-week comparisons only once history spans both windows (14 days).
+  dates, breaches added; 60 days) from which `core/trends.py` computes the digest's
+  Trends section — week-over-week comparisons only once history spans both windows (14
+  days). The breach count is `None` on days the catalogue wasn't read, so its own
+  comparison waits until *its* history spans both windows.
 - **AI analyst notes are untrusted output, never logic.** An optional model (the cloud
   Routine's session) reads the finished digest and writes `notes.json`; the CLI re-renders
   a saved report with it (`--report-out` → `--from-report … --notes …`, no re-collection,
@@ -95,6 +97,15 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   email. Direct dark-web access stays out of scope: deeper coverage comes from
   a sanctioned CTI provider's API as a new collector, not from routing around company or
   ISP controls.
+- **Breach catalogue, not breach searches.** The `hibp` collector reads Have I Been
+  Pwned's public catalogue (no key) and never looks up an email address or domain. It
+  keeps metadata only (who, when, how many accounts, which data classes, HIBP's flags);
+  spam lists, fabricated and retired entries are dropped, sensitive ones labelled. HIBP's
+  own incident description becomes `RawItem.summary`, which is shown but never matched:
+  nearly every description says "breach", which would otherwise make that watchlist
+  keyword fire on every entry. HIBP has no country field, so the collector infers one from
+  the site's country-code TLD (skipping generic-use ccTLDs such as .io or .gg) and the
+  digest says it is inferred. Data is CC BY 4.0; the Breach watch section credits it.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
@@ -125,7 +136,9 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 | cisa_kev | confirmed exploited-in-the-wild CVEs | live |
 | Paste/GitHub leak watch | brand/asset mentions | planned |
 | LLM triage agent | summarize/rank alerts (wrapped data, parse-or-reject) | notes live via cloud Routine; ranking planned |
-| HaveIBeenPwned | breach exposure for owned domains | deferred (needs owned domains + key) |
+| hibp | newly loaded breaches (public catalogue, no key) | live |
+| HaveIBeenPwned domain search | breach exposure for owned domains | deferred (needs owned domains + key) |
+| VulnCheck KEV | exploited CVEs beyond CISA's list (free community token) | next |
 | tor_onion | direct DLS mirrors | gated until legal approval |
 
 **Awareness mode:** the watchlist needs no owned assets — keywords (technologies),

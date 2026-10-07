@@ -1,8 +1,9 @@
 # 🌒 daily-darkweb
 
 A clearnet-first threat intelligence digest for security professionals who want to stay
-current on real-world dark-web-derived activity — ransomware victim claims and vulnerabilities
-confirmed exploited in the wild — without operating collectors on dark-web infrastructure. 🕵️
+current on real-world dark-web-derived activity — ransomware victim claims, vulnerabilities
+confirmed exploited in the wild, and newly published data breaches — without operating
+collectors on dark-web infrastructure. 🕵️
 
 Run it daily and get a briefing — markdown, or a clean HTML email: what's new, what matches
 your interests, how this week compares with last week, and what requires attention today. ☕📰
@@ -11,8 +12,8 @@ your interests, how this week compares with last week, and what requires attenti
 
 Direct Tor/onion scraping carries legal and OPSEC risk even for defenders. Instead, this
 project consumes **clearnet aggregators** — researchers who already monitor onion sites and
-republish victim/indicator *metadata* over clean HTTPS APIs. You get broad coverage (currently
-~200 ransomware groups' leak sites via one source) without touching onion infrastructure
+republish victim/indicator *metadata* over clean HTTPS APIs. You get broad coverage (400+
+ransomware groups' leak sites via one source) without touching onion infrastructure
 yourself. Direct onion collection stays a gated stub (`tor_onion` in config) that refuses to
 enable until documented legal approval exists — see [docs/architecture.md](docs/architecture.md).
 
@@ -23,16 +24,16 @@ collectors (async, timeout, fail-closed)
     -> dedupe + seen-state filter (only new signals)
     -> watchlist match (keywords / orgs / domains / sectors / countries)
     -> deterministic scoring (source + match weights + recency -> severity)
-    -> threat-actor profiles for the groups involved (TTPs, tools)
-    -> trends from daily history (this week vs last week, KEV deadlines)
+    -> threat-actor profiles for the groups involved (TTPs, exploited CVEs, tools)
+    -> trends from daily history (this week vs last week, KEV deadlines, new breaches)
     -> markdown / JSON / HTML digest
     -> optional AI analyst notes, added by re-rendering (labelled "AI generated")
 ```
 
 - 📖 **Readable without visiting anything.** The whole point: nobody on your side needs
   to open leak sites or dark-web mirrors. Each alert carries its details inline — victim
-  context, the (unverified) claim text, KEV summary, required action and deadline — and
-  links remain only as a labelled backup.
+  context, the (unverified) claim text, KEV summary, required action and deadline, what a
+  breach exposed — and links remain only as a labelled backup.
 - 🧭 **Threat actor profiles.** For the groups behind your alerts (then the most active
   ones), the digest explains who they are (first and latest claim, victim count), **how
   they get in** (MITRE ATT&CK initial-access techniques with details), **which
@@ -40,6 +41,10 @@ collectors (async, timeout, fail-closed)
   evasion, credential access, lateral movement, exfiltration, impact) and which tools they
   use — the input for a defence plan. Alerts also show the victim's infostealer exposure
   (counts of compromised employee/user credentials) and press coverage when known.
+- 🔓 **Breach watch.** Every breach newly loaded into Have I Been Pwned: who, when, how
+  many accounts and which kinds of data, with HIBP's own summary. HIBP has no country
+  field, so the digest infers one from the breached site's country-code domain (`.in`,
+  `.co.jp`, …; labelled as inferred) — that is how an APJC breach reaches your alerts.
 - 🧹 **No leak-site links, ever.** All scraped text is scrubbed of .onion addresses, URLs
   and email addresses before it's stored or shown; the source's leak-site, screenshot and
   account fields are never read.
@@ -48,9 +53,9 @@ collectors (async, timeout, fail-closed)
 - 🎯 **Deterministic.** No AI in the matching or scoring path. Same input always produces the
   same score; scraped content is matched as data, never interpreted as instructions.
 - 📈 **Trends.** Each run adds a compact daily summary to the state file. The digest shows
-  active groups, new groups, hit sectors and countries, your watchlist-country share, and
-  KEV deadlines in the next 7 days — with week-over-week changes once 14 days of history
-  exist (never compared against missing data).
+  active groups, new groups, hit sectors and countries, your watchlist-country share, KEV
+  deadlines in the next 7 days and breaches added — with week-over-week changes once 14
+  days of history exist (never compared against missing data).
 - 🤖 **AI analyst notes (optional).** An LLM can add a short summary — trends, recommended
   actions, caveats — on top of the digest. The notes are untrusted output: schema-checked,
   size-limited, **links refused**, HTML-escaped, clearly labelled "AI generated — may be
@@ -64,12 +69,14 @@ collectors (async, timeout, fail-closed)
 |---|---|---|
 | [ransomware.live](https://ransomware.live) 💀 | Ransomware victim-claim metadata, group intel (TTPs, exploited CVEs, tools) | free API PRO key |
 | [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) 🚨 | Vulnerabilities confirmed exploited in the wild | none |
+| [Have I Been Pwned](https://haveibeenpwned.com) 🔓 | Newly loaded data breaches (public catalogue, CC BY 4.0) | none |
 
-Both are free. ransomware.live's API PRO needs a key from
+All are free; only ransomware.live's API PRO needs a key, from
 [ransomware.live/my](https://www.ransomware.live/my): put `RANSOMWARE_LIVE_API_KEY` in
 `.env` for local runs (the cloud Routine gets it from its environment's API credentials —
-see [docs/operations.md](docs/operations.md)). See [docs/roadmap.md](docs/roadmap.md) for
-planned sources (breach exposure, leak-site/paste watch, LLM alert ranking). 🗺️
+see [docs/operations.md](docs/operations.md)). HIBP is read as a catalogue only — the
+pipeline never looks up any email address or domain. See [docs/roadmap.md](docs/roadmap.md)
+for planned sources (VulnCheck KEV, leak-site/paste watch, LLM alert ranking). 🗺️
 
 ## 🚀 Quickstart
 
@@ -83,7 +90,8 @@ echo 'RANSOMWARE_LIVE_API_KEY=<your free key>' >> .env            # 🔑 ransomw
 uv run daily-darkweb --html-out digest.html && open digest.html   # 🌐 browsable report
 ```
 
-Exit codes (scheduler-friendly): `0` ✅ clean · `1` ⚠️ alerts found · `3` ❌ collection failure.
+Exit codes (scheduler-friendly): `0` ✅ clean · `1` ⚠️ alerts found · `3` ❌ collection failure
+· `4` 💥 the runner itself died, no digest (`ops/run_daily.sh`).
 
 Tune what counts as "your interests" in [config/watchlist.yaml](config/watchlist.yaml) —
 technology keywords (e.g. Cisco, Fortinet, Check Point, breach terms), sectors, and
@@ -100,7 +108,8 @@ re-render never collects again or touches the state file:
 uv run daily-darkweb --report-out digests/report.json            # collect + save the run
 # write digests/notes.json from the digest (see below)
 uv run daily-darkweb --from-report digests/report.json \
-    --notes digests/notes.json --html-out digests/digest.html     # digest with notes
+    --notes digests/notes.json --html-out digests/digest.html \
+    --overview-out digests/overview.html                          # digest (+ email overview)
 ```
 
 `notes.json` must follow this shape — anything else (or any link) is rejected, and the
@@ -134,6 +143,7 @@ Recommended actions:
 - Watchlist countries: 12 (prev 8, +50%) — JP 4 (prev 1, +300%), IN 3 (prev 2, +50%)
 - CISA KEV additions: 9 (prev 4, +125%)
 - KEV deadlines in the next 7 days: CVE-2026-93616 (due 2026-09-25), CVE-2026-85102 (due 2026-09-25)
+- Breaches added to HIBP: 4 (prev 6, -33%)
 
 ## Watchlist alerts (3)
 ### [HIGH 67] Example Diagnostics Ltd claimed by qilin
@@ -144,19 +154,31 @@ Recommended actions:
 - Group: qilin — profile below
 - Reference (backup link): https://www.ransomware.live/id/…
 
+## Breach watch (1)
+### [MEDIUM 45] Example Shop: 274,922 accounts exposed
+- Source: `hibp` | published: 2026-10-07 05:42 UTC
+- Exposed data: Email addresses, Names, Usernames
+- Incident date: 2026-10-04 · added to Have I Been Pwned: 2026-10-07
+- Summary: In October 2026, the online shop suffered a data breach attributed to …
+- Reference (backup link): https://haveibeenpwned.com/Breach/…
+
 ## Threat actor profiles (1)
 ### qilin
-_tracked since 2022-10-08_
+_tracked since 2022-10-08; 2,342 victims claimed; latest claim 2026-10-07_
 Qilin ransomware was first observed in July of 2022 … Qilin actors practice double extortion …
 - How they get in (Initial Access):
   - Valid Accounts (T1078): Compromised credentials used to authenticate via VPN and RDP …
   - Exploit Public-Facing Application (T1190): Exploitation of vulnerabilities in VPN appliances …
+- Vulnerabilities they exploit (highest CVSS first):
+  - CVE-2025-31324 — SAP NetWeaver Visual Composer (CVSS 10.0, critical)
+  - CVE-2024-21762 — Fortinet FortiOS (CVSS 9.8, critical)
+  - (+13 more)
 - Credential Access: OS Credential Dumping: LSASS Memory (T1003.001), Network Sniffing (T1040), …
 - Tools: Credential theft: Mimikatz; Remote management (RMM) tools: NetSupport, ScreenConnect; …
 - Reference (backup link): https://www.ransomware.live/group/qilin
 ```
 
-(Illustrative numbers and a fictional victim. The HTML version is color-coded, with the
+(Illustrative numbers and fictional victims. The HTML version is color-coded, with the
 same details in cards.)
 
 ## ⏰ Running it daily
@@ -166,11 +188,11 @@ Two ways, both documented in [docs/operations.md](docs/operations.md):
 - ☁️ **Cloud Routine on claude.ai** (no machine of your own): a scheduled Claude Code
   session runs the pipeline, commits the state file, writes the AI analyst notes, and emails
   the HTML digest (inline + attached) through the Gmail connector — every run, clean ones
-  included, so a missing email always means something broke. On heavy days the email body
-  is a short overview (`--overview-out`) and the full report travels as the attachment. The instructions to paste
-  into the Routine are in [ops/routine_prompt.md](ops/routine_prompt.md); the setup
-  (network allowlist, GitHub App, email) is in the
-  [Cloud Routine runbook](docs/operations.md#cloud-routine-claudeai).
+  included, so a missing email always means something broke. On heavy days (report over
+  25 KB) the email body is a short overview (`--overview-out`) and the full report travels
+  as the attachment. The instructions to paste into the Routine are in
+  [ops/routine_prompt.md](ops/routine_prompt.md); the setup (network allowlist, API key,
+  GitHub App, email) is in the [Cloud Routine runbook](docs/operations.md#cloud-routine-claudeai).
 - 🖥️ **launchd on an always-on Mac:** archives digests locally and notifies only when
   there's something to see.
 
@@ -199,8 +221,9 @@ for the layered design and threat model.
 
 ## 📈 Status
 
-Phase 1 and initial Phase 2 collectors complete and verified against live sources; running
-daily as a cloud Routine with trends and AI analyst notes. See
+Phase 1 complete; Phase 2 well underway — ransomware.live (API PRO), CISA KEV and Have I
+Been Pwned collectors live and verified against the real sources; running daily as a cloud
+Routine with trends, threat-actor profiles and AI analyst notes. See
 [docs/roadmap.md](docs/roadmap.md) for current status and what's next.
 
 ## 📄 License

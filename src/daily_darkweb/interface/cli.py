@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from daily_darkweb.collectors.base import Collector
 from daily_darkweb.collectors.cisa_kev import CisaKevCollector
+from daily_darkweb.collectors.hibp import HibpCollector
 from daily_darkweb.collectors.ransomware_live import RansomwareLiveCollector
 from daily_darkweb.config import ApiKeys, SourcesConfig, load_sources, load_watchlist
 from daily_darkweb.core.dedup import dedup_key
@@ -86,8 +87,8 @@ def _save_state(
 
 def _effective_recent_days(configured: int, last_success: datetime | None, now: datetime) -> int:
     """Lookback that always covers the span since the last fully-successful run, so KEV
-    entries added while the pipeline wasn't running still get reported. `configured` is
-    the floor; the gap-derived stretch is capped at _MAX_LOOKBACK_DAYS.
+    and HIBP entries added while the pipeline wasn't running still get reported.
+    `configured` is the floor; the gap-derived stretch is capped at _MAX_LOOKBACK_DAYS.
     """
     if last_success is None:
         return configured
@@ -95,8 +96,27 @@ def _effective_recent_days(configured: int, last_success: datetime | None, now: 
     return max(configured, min(gap_days, _MAX_LOOKBACK_DAYS))
 
 
+def _window_start(
+    source: str, configured_days: int, last_success: datetime | None, now: datetime
+) -> date:
+    """First day a date-window collector must cover (see _effective_recent_days)."""
+    days = _effective_recent_days(configured_days, last_success, now)
+    if days > configured_days and last_success is not None:
+        print(
+            f"{source}: widening lookback to {days}d to cover the gap since the "
+            f"last successful run ({last_success.date().isoformat()}).",
+            file=sys.stderr,
+        )
+    return now.date() - timedelta(days=days)
+
+
 def _build_collectors(
-    sources: SourcesConfig, client: httpx.AsyncClient, *, kev_since: date, keys: ApiKeys
+    sources: SourcesConfig,
+    client: httpx.AsyncClient,
+    *,
+    last_success: datetime | None,
+    now: datetime,
+    keys: ApiKeys,
 ) -> list[Collector]:
     collectors: list[Collector] = []
     if sources.ransomware_live.enabled:
@@ -111,13 +131,25 @@ def _build_collectors(
             )
         )
     if sources.cisa_kev.enabled:
+        kev = sources.cisa_kev
         collectors.append(
             CisaKevCollector(
                 client,
-                since=kev_since,
-                feed_url=sources.cisa_kev.feed_url,
-                timeout_seconds=sources.cisa_kev.timeout_seconds,
-                max_items=sources.cisa_kev.max_items,
+                since=_window_start("cisa_kev", kev.recent_days, last_success, now),
+                feed_url=kev.feed_url,
+                timeout_seconds=kev.timeout_seconds,
+                max_items=kev.max_items,
+            )
+        )
+    if sources.hibp.enabled:
+        hibp = sources.hibp
+        collectors.append(
+            HibpCollector(
+                client,
+                since=_window_start("hibp", hibp.recent_days, last_success, now),
+                base_url=hibp.base_url,
+                timeout_seconds=hibp.timeout_seconds,
+                max_items=hibp.max_items,
             )
         )
     return collectors
@@ -154,19 +186,12 @@ async def _collect(
     state_path = Path(args.state)
     state = _State() if args.no_state else _load_state(state_path)
 
-    recent_days = _effective_recent_days(sources.cisa_kev.recent_days, state.last_success, now)
-    if recent_days > sources.cisa_kev.recent_days and state.last_success is not None:
-        print(
-            f"cisa_kev: widening lookback to {recent_days}d to cover the gap since the "
-            f"last successful run ({state.last_success.date().isoformat()}).",
-            file=sys.stderr,
-        )
-    kev_since = now.date() - timedelta(days=recent_days)
-
     async with httpx.AsyncClient(
         headers={"User-Agent": "daily-darkweb/0.1 (defensive CTI research)"}
     ) as client:
-        collectors = _build_collectors(sources, client, kev_since=kev_since, keys=ApiKeys())
+        collectors = _build_collectors(
+            sources, client, last_success=state.last_success, now=now, keys=ApiKeys()
+        )
         if not collectors:
             print("No collectors enabled; nothing to do.", file=sys.stderr)
             return None

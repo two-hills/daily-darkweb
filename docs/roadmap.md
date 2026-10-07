@@ -1,6 +1,20 @@
 # Roadmap
 
-**Current status (2026-10-07):** ransomware.live moved to its **API PRO** (free key; the
+**Current status (2026-10-08):** New **`hibp` collector**: Have I Been Pwned's public
+breach catalogue (no key, CC BY 4.0, credited). Every breach newly loaded into HIBP shows
+in a new **Breach watch** section — who, when, how many accounts, which data classes,
+HIBP's own summary — and a daily count feeds the Trends ("Breaches added to HIBP", compared
+only once its own history spans both weeks). HIBP's description is a display-only
+`summary`: 21 of the 30 newest say "breach", which would have made that watchlist keyword
+alert on every entry. The country is inferred from the site's country-code domain (generic
+ccTLDs skipped, labelled as inferred), so APJC breaches alert — on the live catalogue,
+Angel One (India, 6.8M accounts) did. Spam lists, fabricated and retired entries are
+dropped; sensitive ones labelled. First run backfills 30 days (7 breaches), which makes
+that day's report "heavy" and exercises the overview email layout. Routine prompt v6
+reads the new section and is generic enough for upcoming sources. 201 tests green. Next:
+VulnCheck KEV (free community token, already in the environment's API credentials).
+
+**Previous status (2026-10-07):** ransomware.live moved to its **API PRO** (free key; the
 keyless v2 API is personal-use only). The key lives in the cloud environment's API
 credentials — the network proxy adds it, so it never enters the Routine's session; local
 runs use `RANSOMWARE_LIVE_API_KEY`. Seen-state carries over: PRO permalinks drop the base64
@@ -89,8 +103,11 @@ Next: LLM triage agent, then paste/GitHub leak watch.
       env/.env, password via macOS Keychain fallback (shared with the Claude Code
       notify hook); sends only on alerts/failures, redundant channel (never affects
       exit code)
+- [x] HIBP breach-catalogue collector (`hibp`): public `/breaches`, no key; Breach watch
+      section, display-only summaries, ccTLD country inference, breach trend
 - [ ] HIBP domain-search collector — **deferred**: requires owned+verified domains and
       an `HIBP_API_KEY`; revisit if the user ever has domains to protect
+- [ ] VulnCheck KEV collector — exploited CVEs beyond CISA KEV (free community token)
 - [x] Daily history + Trends section (`core/trends.py`, state `history` capped at 60
       days; comparisons only once history spans both windows)
 - [x] AI analyst notes (summarize half of LLM triage): produced by the cloud Routine's

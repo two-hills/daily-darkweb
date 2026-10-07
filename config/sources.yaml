@@ -13,6 +13,13 @@ cisa_kev:
                       # successful run (capped at 365d) so idle spells miss nothing
   max_items: 200
 
+# Have I Been Pwned's public breach catalogue: no key; data CC BY 4.0 (credited in
+# the digest). Reads the catalogue only — never searches any email or domain.
+hibp:
+  enabled: true
+  recent_days: 30     # on the date HIBP loaded the breach; auto-widened like cisa_kev
+  max_items: 50
+
 # Gated: enabling this raises a config error until the project has documented
 # legal approval for direct onion collection (see docs/architecture.md).
 tor_onion:
