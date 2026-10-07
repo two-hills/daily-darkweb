@@ -8,7 +8,7 @@ spans both windows, so a young history never fakes a week-over-week change.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, timedelta
 
 from daily_darkweb.core.models import (
@@ -23,6 +23,7 @@ from daily_darkweb.core.models import (
 RANSOMWARE_SOURCE = "ransomware_live"
 KEV_SOURCE = "cisa_kev"
 BREACH_SOURCE = "hibp"
+VULNCHECK_SOURCE = "vulncheck_kev"
 WINDOW_DAYS = 7
 HISTORY_KEEP_DAYS = 60
 DUE_SOON_DAYS = 7
@@ -49,15 +50,6 @@ def summarize(report: Report, day: date) -> DailySummary:
         elif item.source == KEV_SOURCE:
             due = item.due_date.date() if item.due_date else None
             kev.append(KevEntry(cve_id=item.external_id, title=item.title, due_date=due))
-    # Breach counts only for runs that actually read the catalogue: an absent or failed
-    # collector leaves None ("unknown"), never a misleading zero.
-    breaches_seen = any(
-        r.source == BREACH_SOURCE and r.status is CollectionStatus.OK
-        for r in report.collector_results
-    )
-    breaches = sum(
-        1 for a in [*report.alerts, *report.observations] if a.item.source == BREACH_SOURCE
-    )
     return DailySummary(
         day=day,
         complete=not report.has_failures,
@@ -66,8 +58,19 @@ def summarize(report: Report, day: date) -> DailySummary:
         sectors=dict(sectors),
         countries=dict(countries),
         kev_added=kev,
-        breaches_added=breaches if breaches_seen else None,
+        breaches_added=_count_if_collected(report, BREACH_SOURCE),
+        vulncheck_added=_count_if_collected(report, VULNCHECK_SOURCE),
     )
+
+
+def _count_if_collected(report: Report, source: str) -> int | None:
+    """New signals from `source`, or None ("unknown") when it wasn't read successfully —
+    an absent or failed collector must never look like a quiet day."""
+    if not any(
+        r.source == source and r.status is CollectionStatus.OK for r in report.collector_results
+    ):
+        return None
+    return sum(1 for a in [*report.alerts, *report.observations] if a.item.source == source)
 
 
 def merge_history(
@@ -138,36 +141,45 @@ def compute_trends(
             sum(len(s.kev_added) for s in previous),
         ),
         kev_due_soon=_due_soon(history, today),
-        breaches_added=_breaches_delta(history, current, previous, previous_start),
+        breaches_added=_tracked_delta(
+            "breaches added", lambda s: s.breaches_added, history, current, previous, previous_start
+        ),
+        vulncheck_added=_tracked_delta(
+            "VulnCheck KEV additions",
+            lambda s: s.vulncheck_added,
+            history,
+            current,
+            previous,
+            previous_start,
+        ),
     )
 
 
-def _breaches_delta(
+def _tracked_delta(
+    name: str,
+    count: Callable[[DailySummary], int | None],
     history: list[DailySummary],
     current: list[DailySummary],
     previous: list[DailySummary],
     previous_start: date,
 ) -> CountDelta | None:
-    """Breach additions, compared only once the catalogue's *own* history spans both
-    windows — it was added later than the other sources."""
-    tracked = [s.day for s in history if s.breaches_added is not None]
+    """A count from a source that joined later than the others: compared only once that
+    source's *own* history spans both windows; None while it has no history at all."""
+    tracked = [s.day for s in history if count(s) is not None]
     if not tracked:
         return None
     return CountDelta(
-        name="breaches added",
-        current=sum(s.breaches_added or 0 for s in current),
-        previous=(
-            sum(s.breaches_added or 0 for s in previous) if min(tracked) <= previous_start else None
-        ),
+        name=name,
+        current=sum(count(s) or 0 for s in current),
+        previous=(sum(count(s) or 0 for s in previous) if min(tracked) <= previous_start else None),
     )
+
+
+def _add_counts(a: int | None, b: int | None) -> int | None:
+    return None if a is None and b is None else (a or 0) + (b or 0)
 
 
 def _add(a: DailySummary, b: DailySummary) -> DailySummary:
-    breaches = (
-        None
-        if a.breaches_added is None and b.breaches_added is None
-        else (a.breaches_added or 0) + (b.breaches_added or 0)
-    )
     return DailySummary(
         day=a.day,
         complete=a.complete and b.complete,
@@ -176,7 +188,8 @@ def _add(a: DailySummary, b: DailySummary) -> DailySummary:
         sectors=dict(Counter(a.sectors) + Counter(b.sectors)),
         countries=dict(Counter(a.countries) + Counter(b.countries)),
         kev_added=_unique_kev([*a.kev_added, *b.kev_added]),
-        breaches_added=breaches,
+        breaches_added=_add_counts(a.breaches_added, b.breaches_added),
+        vulncheck_added=_add_counts(a.vulncheck_added, b.vulncheck_added),
     )
 
 

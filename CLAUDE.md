@@ -55,7 +55,8 @@ with mocked-HTTP tests including fail-closed cases; never hit live APIs in tests
 ## Status
 Phase 1 complete; Phase 2 underway — collectors live: `ransomware_live` (API PRO:
 exploited CVEs per group, infostealer exposure), `cisa_kev`, `hibp` (public breach
-catalogue, no key). Runs daily as a cloud Routine with trends, threat-actor profiles and
-AI analyst notes. **Awareness mode:** the user watches no owned domains; watchlist =
-technology keywords + sectors + APJC countries. HIBP *domain search* stays deferred (needs
-owned domains); VulnCheck KEV is next. See docs/roadmap.md.
+catalogue, no key), `vulncheck_kev` (exploited CVEs not yet in CISA KEV; CISA wins
+overlaps). Runs daily as a cloud Routine with trends, threat-actor profiles and AI analyst
+notes. **Awareness mode:** the user watches no owned domains; watchlist = technology
+keywords + sectors + APJC countries. HIBP *domain search* stays deferred (needs owned
+domains). See docs/roadmap.md.

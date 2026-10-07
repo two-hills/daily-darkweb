@@ -50,23 +50,26 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   retries on 429/5xx/timeouts only (honoring Retry-After, capped); auth/validation 4xx
   never retried; result sets bounded by `max_items`.
 - **API keys never enter the cloud session.** ransomware.live's API PRO wants an
-  `X-API-KEY` header. In the cloud Routine the environment's API credentials make the
-  network proxy add it to requests for `api-pro.ransomware.live` after they leave the
-  session, so neither the model nor any command ever sees the key (a prompt-injected
-  digest has nothing to exfiltrate). Local runs read `RANSOMWARE_LIVE_API_KEY` from
-  env/.env (`config.ApiKeys`, a `SecretStr`), and the key travels as a per-request header
-  to that source only. A missing or rejected key is an explicit FAILED, never retried.
+  `X-API-KEY` header and VulnCheck an `Authorization: Bearer` token. In the cloud Routine
+  the environment's API credentials make the network proxy add each one to requests for
+  its host (`api-pro.ransomware.live`, `api.vulncheck.com`) after they leave the session,
+  so neither the model nor any command ever sees them (a prompt-injected digest has
+  nothing to exfiltrate). Local runs read `RANSOMWARE_LIVE_API_KEY` / `VULNCHECK_API_TOKEN`
+  from env/.env (`config.ApiKeys`, `SecretStr`s), and each travels as a per-request header
+  to its own source only. A missing or rejected key is an explicit FAILED, never retried.
 - **State:** `.state/seen.json` holds only dedup hashes (capped at 50k keys) plus
   `last_success`, the timestamp of the last run with zero collector failures. The CLI
-  stretches the KEV and HIBP lookback windows to `max(recent_days, days since last_success)`
+  stretches the KEV, HIBP and VulnCheck lookback windows to
+  `max(recent_days, days since last_success)`
   (capped at 365d), so a pipeline that sat idle — or failed — for longer than the
   configured window still reports everything added in between instead of silently
   skipping it. Failed runs never advance the timestamp. It also keeps `history`: one
   compact per-day summary (counts per group/sector/country, KEV additions with due
-  dates, breaches added; 60 days) from which `core/trends.py` computes the digest's
-  Trends section — week-over-week comparisons only once history spans both windows (14
-  days). The breach count is `None` on days the catalogue wasn't read, so its own
-  comparison waits until *its* history spans both windows.
+  dates, breaches added, VulnCheck-only exploited CVEs; 60 days) from which
+  `core/trends.py` computes the digest's Trends section — week-over-week comparisons only
+  once history spans both windows (14 days). The breach and VulnCheck counts are `None` on
+  days their source wasn't read, so their comparisons wait until *their own* history spans
+  both windows.
 - **AI analyst notes are untrusted output, never logic.** An optional model (the cloud
   Routine's session) reads the finished digest and writes `notes.json`; the CLI re-renders
   a saved report with it (`--report-out` → `--from-report … --notes …`, no re-collection,
@@ -106,6 +109,14 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   keyword fire on every entry. HIBP has no country field, so the collector infers one from
   the site's country-code TLD (skipping generic-use ccTLDs such as .io or .gg) and the
   digest says it is inferred. Data is CC BY 4.0; the Breach watch section credits it.
+- **VulnCheck KEV is the early-warning layer, CISA KEV the authority.** The
+  `vulncheck_kev` collector emits only exploited CVEs CISA hasn't listed (≈4 a day), newest
+  first from a 7-day floor (the API serves at most six pages per query). If both sources
+  carry a CVE in the same run (catalogue sync lag), the pipeline keeps CISA's entry, which
+  has the federal deadline. Watchlist matches become full alerts; the rest are one line
+  each under Vulnerability watch, so the email stays short. Exploitation evidence is
+  counted, not linked; the reference is the NVD page. VulnCheck asks for attribution: the
+  section credits it.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
   `html.escape` before interpolation — titles/bodies are untrusted and must never inject
   markup or script into a page that gets opened in a browser.
@@ -138,7 +149,7 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 | LLM triage agent | summarize/rank alerts (wrapped data, parse-or-reject) | notes live via cloud Routine; ranking planned |
 | hibp | newly loaded breaches (public catalogue, no key) | live |
 | HaveIBeenPwned domain search | breach exposure for owned domains | deferred (needs owned domains + key) |
-| VulnCheck KEV | exploited CVEs beyond CISA's list (free community token) | next |
+| vulncheck_kev | exploited CVEs not (yet) in CISA KEV (free community token) | live |
 | tor_onion | direct DLS mirrors | gated until legal approval |
 
 **Awareness mode:** the watchlist needs no owned assets — keywords (technologies),

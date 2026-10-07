@@ -138,3 +138,30 @@ async def test_enrichment_attaches_profiles_and_notes_failures() -> None:
     assert [p.name for p in enriched.group_profiles] == ["qilin"]
     assert enriched.profile_errors == ["play (RuntimeError)"]
     assert enriched.collector_results == report.collector_results  # never a collection failure
+
+
+async def test_a_cve_cisa_lists_is_reported_from_cisa_only(now: datetime) -> None:
+    """VulnCheck and CISA can disagree for a day (sync lag); CISA's entry wins."""
+    cisa = make_item(source="cisa_kev", external_id="CVE-2026-1", title="CVE-2026-1: X")
+    both = make_item(source="vulncheck_kev", external_id="cve-2026-1", title="CVE-2026-1: X")
+    only = make_item(source="vulncheck_kev", external_id="CVE-2026-2", title="CVE-2026-2: Y")
+    report = await run_pipeline(
+        [ok("cisa_kev", [cisa]), ok("vulncheck_kev", [both, only])],
+        Watchlist(),
+        frozenset(),
+        now,
+    )
+    reported = sorted((a.item.source, a.item.external_id) for a in report.observations)
+    assert reported == [("cisa_kev", "CVE-2026-1"), ("vulncheck_kev", "CVE-2026-2")]
+
+
+async def test_cisa_entry_already_seen_still_suppresses_the_vulncheck_copy(now: datetime) -> None:
+    cisa = make_item(source="cisa_kev", external_id="CVE-2026-1", title="CVE-2026-1: X")
+    copy = make_item(source="vulncheck_kev", external_id="CVE-2026-1", title="CVE-2026-1: X")
+    report = await run_pipeline(
+        [ok("cisa_kev", [cisa]), ok("vulncheck_kev", [copy])],
+        Watchlist(),
+        frozenset({dedup_key(cisa)}),
+        now,
+    )
+    assert report.alerts == [] and report.observations == []

@@ -403,3 +403,44 @@ def test_breach_trend_line_appears_once_tracked() -> None:
     trends = compute_trends(history, date(2026, 7, 27), watch_countries=[])
     report = _breach_report().model_copy(update={"trends": trends})
     assert "- Breaches added to HIBP: 3\n" in render_markdown(report)
+
+
+def _early(i: int, **overrides: object) -> Alert:
+    item = make_item(
+        source="vulncheck_kev",
+        external_id=f"CVE-2026-{i:04d}",
+        title=f"CVE-2026-{i:04d}: Product {i} code injection",
+        body="Vendor: V | Product: P\nNot yet in CISA KEV.",
+        published_at=datetime(2026, 7, 26, tzinfo=UTC),
+        actor=None,
+        sector=None,
+        country=None,
+        reference_url=f"https://nvd.nist.gov/vuln/detail/CVE-2026-{i:04d}",
+        **overrides,
+    )
+    return Alert(item=item, matches=[], score=45, severity=Severity.MEDIUM)
+
+
+def _with_vulncheck(report: Report) -> Report:
+    results = [
+        *report.collector_results,
+        CollectResult(source="vulncheck_kev", status=CollectionStatus.OK),
+    ]
+    return report.model_copy(update={"collector_results": results})
+
+
+def test_vulncheck_only_cves_are_one_line_each_under_vulnerability_watch() -> None:
+    report = _with_vulncheck(_report(alerts=[], observations=[_early(i) for i in range(23)]))
+    rendered = render_markdown(report)
+    assert "## Vulnerability watch (23)" in rendered
+    assert "No additional exploited CVEs outside your watchlist this run." in rendered  # CISA
+    assert "### Not yet in CISA KEV — reported exploited (VulnCheck KEV) (23)" in rendered
+    assert "Source: VulnCheck KEV (vulncheck.com)." in rendered
+    assert "- [medium] CVE-2026-0000: Product 0 code injection — added 2026-07-26" in rendered
+    assert "- +3 more" in rendered  # twenty shown
+    assert "Vendor: V | Product: P" not in rendered  # details only for watchlist alerts
+    assert "No new signals since last run." in rendered  # not ransomware landscape
+
+
+def test_vulncheck_section_is_hidden_when_not_collected() -> None:
+    assert "Not yet in CISA KEV" not in render_markdown(_report(alerts=[], observations=[]))

@@ -41,6 +41,10 @@ collectors (async, timeout, fail-closed)
   evasion, credential access, lateral movement, exfiltration, impact) and which tools they
   use — the input for a defence plan. Alerts also show the victim's infostealer exposure
   (counts of compromised employee/user credentials) and press coverage when known.
+- ⏱️ **Early exploitation warnings.** VulnCheck KEV lists exploited CVEs days or weeks
+  before CISA does. Those that match your watchlist (Cisco, Fortinet, VPN, ransomware use,
+  …) become full alerts; the rest are one line each under Vulnerability watch, marked "not
+  yet in CISA KEV". When CISA lists a CVE, its entry (with the federal deadline) wins.
 - 🔓 **Breach watch.** Every breach newly loaded into Have I Been Pwned: who, when, how
   many accounts and which kinds of data, with HIBP's own summary. HIBP has no country
   field, so the digest infers one from the breached site's country-code domain (`.in`,
@@ -54,8 +58,9 @@ collectors (async, timeout, fail-closed)
   same score; scraped content is matched as data, never interpreted as instructions.
 - 📈 **Trends.** Each run adds a compact daily summary to the state file. The digest shows
   active groups, new groups, hit sectors and countries, your watchlist-country share, KEV
-  deadlines in the next 7 days and breaches added — with week-over-week changes once 14
-  days of history exist (never compared against missing data).
+  deadlines in the next 7 days, breaches added and VulnCheck-only exploited CVEs — with
+  week-over-week changes once 14 days of history exist (never compared against missing
+  data).
 - 🤖 **AI analyst notes (optional).** An LLM can add a short summary — trends, recommended
   actions, caveats — on top of the digest. The notes are untrusted output: schema-checked,
   size-limited, **links refused**, HTML-escaped, clearly labelled "AI generated — may be
@@ -70,13 +75,16 @@ collectors (async, timeout, fail-closed)
 | [ransomware.live](https://ransomware.live) 💀 | Ransomware victim-claim metadata, group intel (TTPs, exploited CVEs, tools) | free API PRO key |
 | [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) 🚨 | Vulnerabilities confirmed exploited in the wild | none |
 | [Have I Been Pwned](https://haveibeenpwned.com) 🔓 | Newly loaded data breaches (public catalogue, CC BY 4.0) | none |
+| [VulnCheck KEV](https://vulncheck.com) ⏱️ | Exploited CVEs not (yet) in CISA KEV — early warning | free community token |
 
-All are free; only ransomware.live's API PRO needs a key, from
-[ransomware.live/my](https://www.ransomware.live/my): put `RANSOMWARE_LIVE_API_KEY` in
-`.env` for local runs (the cloud Routine gets it from its environment's API credentials —
-see [docs/operations.md](docs/operations.md)). HIBP is read as a catalogue only — the
-pipeline never looks up any email address or domain. See [docs/roadmap.md](docs/roadmap.md)
-for planned sources (VulnCheck KEV, leak-site/paste watch, LLM alert ranking). 🗺️
+All are free. Two need a key: ransomware.live's API PRO
+([ransomware.live/my](https://www.ransomware.live/my)) and VulnCheck's community API token
+([vulncheck.com](https://vulncheck.com)). For local runs put `RANSOMWARE_LIVE_API_KEY` and
+`VULNCHECK_API_TOKEN` in `.env`; the cloud Routine gets both from its environment's API
+credentials instead — see [docs/operations.md](docs/operations.md). HIBP is read as a
+catalogue only — the pipeline never looks up any email address or domain. See
+[docs/roadmap.md](docs/roadmap.md) for planned work (leak-site/paste watch, LLM alert
+ranking). 🗺️
 
 ## 🚀 Quickstart
 
@@ -87,6 +95,7 @@ git clone <this-repo>
 cd daily-darkweb
 uv sync
 echo 'RANSOMWARE_LIVE_API_KEY=<your free key>' >> .env            # 🔑 ransomware.live API PRO
+echo 'VULNCHECK_API_TOKEN=<your free token>' >> .env              # 🔑 VulnCheck community
 uv run daily-darkweb --html-out digest.html && open digest.html   # 🌐 browsable report
 ```
 
@@ -144,6 +153,7 @@ Recommended actions:
 - CISA KEV additions: 9 (prev 4, +125%)
 - KEV deadlines in the next 7 days: CVE-2026-93616 (due 2026-09-25), CVE-2026-85102 (due 2026-09-25)
 - Breaches added to HIBP: 4 (prev 6, -33%)
+- Exploited CVEs added to VulnCheck KEV, not in CISA KEV: 27 (prev 31, -13%)
 
 ## Watchlist alerts (3)
 ### [HIGH 67] Example Diagnostics Ltd claimed by qilin
@@ -153,6 +163,15 @@ Recommended actions:
 - Description (unverified): Diagnostic laboratory; the group claims patient and billing data.
 - Group: qilin — profile below
 - Reference (backup link): https://www.ransomware.live/id/…
+
+## Vulnerability watch (2)
+Every new confirmed-exploited CVE from CISA KEV, beyond your watchlist.
+No additional exploited CVEs outside your watchlist this run.
+
+### Not yet in CISA KEV — reported exploited (VulnCheck KEV) (2)
+Exploited CVEs that VulnCheck KEV lists but CISA KEV doesn't (yet), one line each; …
+- [medium] CVE-2026-51886: Langflow Langflow Improper Control of Generation of Code ('Code Injection') — added 2026-10-06
+- [medium] CVE-2026-95675: D-Link dap-1360_firmware OS Command Injection — added 2026-10-05
 
 ## Breach watch (1)
 ### [MEDIUM 45] Example Shop: 274,922 accounts exposed
@@ -221,9 +240,9 @@ for the layered design and threat model.
 
 ## 📈 Status
 
-Phase 1 complete; Phase 2 well underway — ransomware.live (API PRO), CISA KEV and Have I
-Been Pwned collectors live and verified against the real sources; running daily as a cloud
-Routine with trends, threat-actor profiles and AI analyst notes. See
+Phase 1 complete; Phase 2 well underway — ransomware.live (API PRO), CISA KEV, Have I Been
+Pwned and VulnCheck KEV collectors live and verified against the real sources; running
+daily as a cloud Routine with trends, threat-actor profiles and AI analyst notes. See
 [docs/roadmap.md](docs/roadmap.md) for current status and what's next.
 
 ## 📄 License

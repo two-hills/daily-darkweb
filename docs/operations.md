@@ -77,10 +77,10 @@ Prerequisites, each learned from a failed run:
 
 - **Network:** the Routine's environment must allow the collector hosts. With the
   default *Trusted* access they fail with `ProxyError: 403`. Add `api-pro.ransomware.live`,
-  `www.cisa.gov` and `haveibeenpwned.com` to the allowed domains (*Custom* access in older
-  apps) and keep the
-  package-managers box ticked (uv needs PyPI). New collectors need their API host added
-  too. (`api.ransomware.live`, the keyless v2 API, is no longer used.)
+  `www.cisa.gov`, `haveibeenpwned.com` and `api.vulncheck.com` to the allowed domains
+  (*Custom* access in older apps) and keep the package-managers box ticked (uv needs PyPI).
+  New collectors need their API host added too. (`api.ransomware.live`, the keyless v2
+  API, is no longer used.)
 - **API keys:** ransomware.live's API PRO needs a free key (ransomware.live/my). Store it
   in the environment's **API credentials** (*Network secrets* in newer apps): allowed
   website `api-pro.ransomware.live`, header name `X-API-KEY`, no prefix. The proxy adds it
@@ -88,7 +88,12 @@ Prerequisites, each learned from a failed run:
   scraped text — never sees it. Without that section (Team/Enterprise plans), set
   `RANSOMWARE_LIVE_API_KEY` as an environment variable instead. A missing or wrong key
   shows as `ransomware_live: FAILED — API key missing or rejected`. Local runs: put
-  `RANSOMWARE_LIVE_API_KEY` in `.env`.
+  `RANSOMWARE_LIVE_API_KEY` in `.env`. VulnCheck the same way: a free community API token
+  (vulncheck.com → account → API tokens) as a second credential — allowed website
+  `api.vulncheck.com`, header name `Authorization`, prefix `Bearer`; environment variable
+  or `.env`: `VULNCHECK_API_TOKEN`. VulnCheck expires tokens unused for 30 days, so after
+  a long pause, issue a new one if the digest shows `vulncheck_kev: FAILED — API token
+  missing or rejected`.
 - **GitHub push:** the Routine commits `.state/seen.json` to `main`. That needs the
   Claude GitHub App installed on this repository — a public repo clones without it, but
   every push is rejected with 403.

@@ -16,6 +16,7 @@ from daily_darkweb.collectors.base import Collector
 from daily_darkweb.collectors.cisa_kev import CisaKevCollector
 from daily_darkweb.collectors.hibp import HibpCollector
 from daily_darkweb.collectors.ransomware_live import RansomwareLiveCollector
+from daily_darkweb.collectors.vulncheck_kev import VulnCheckKevCollector
 from daily_darkweb.config import ApiKeys, SourcesConfig, load_sources, load_watchlist
 from daily_darkweb.core.dedup import dedup_key
 from daily_darkweb.core.models import AnalystNotes, DailySummary, Report
@@ -87,7 +88,7 @@ def _save_state(
 
 def _effective_recent_days(configured: int, last_success: datetime | None, now: datetime) -> int:
     """Lookback that always covers the span since the last fully-successful run, so KEV
-    and HIBP entries added while the pipeline wasn't running still get reported.
+    HIBP and VulnCheck entries added while the pipeline wasn't running still get reported.
     `configured` is the floor; the gap-derived stretch is capped at _MAX_LOOKBACK_DAYS.
     """
     if last_success is None:
@@ -150,6 +151,19 @@ def _build_collectors(
                 base_url=hibp.base_url,
                 timeout_seconds=hibp.timeout_seconds,
                 max_items=hibp.max_items,
+            )
+        )
+    if sources.vulncheck_kev.enabled:
+        vulncheck = sources.vulncheck_kev
+        token = keys.vulncheck_api_token
+        collectors.append(
+            VulnCheckKevCollector(
+                client,
+                since=_window_start("vulncheck_kev", vulncheck.recent_days, last_success, now),
+                base_url=vulncheck.base_url,
+                timeout_seconds=vulncheck.timeout_seconds,
+                max_items=vulncheck.max_items,
+                api_token=token.get_secret_value() if token else None,
             )
         )
     return collectors

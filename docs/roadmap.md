@@ -1,6 +1,18 @@
 # Roadmap
 
-**Current status (2026-10-08):** New **`hibp` collector**: Have I Been Pwned's public
+**Current status (2026-10-09):** New **`vulncheck_kev` collector** — the early-warning
+layer: exploited CVEs that VulnCheck KEV lists but CISA KEV doesn't (yet), ~4 a day (116
+in the last 30 days). Watchlist matches become full alerts (on live data: CVE-2024-49766,
+werkzeug, flagged for ransomware use and not in CISA KEV); the rest are one line each
+under Vulnerability watch, so a 7-day first-run backfill stays readable. When both
+catalogues carry a CVE in the same run (sync lag), CISA's entry wins — it has the
+federal deadline. Bearer token via the environment's API credentials (cloud) or
+`VULNCHECK_API_TOKEN` (local); newest first via `sort=date_added`, at most six pages.
+Trend line for VulnCheck-only additions (tracked per source, like HIBP). Routine prompt
+v7: the AI notes call out early warnings. 224 tests green. Phase 2 sources are complete;
+next: structlog to stderr, then LLM alert ranking.
+
+**Previous status (2026-10-08):** New **`hibp` collector**: Have I Been Pwned's public
 breach catalogue (no key, CC BY 4.0, credited). Every breach newly loaded into HIBP shows
 in a new **Breach watch** section — who, when, how many accounts, which data classes,
 HIBP's own summary — and a daily count feeds the Trends ("Breaches added to HIBP", compared
@@ -107,7 +119,8 @@ Next: LLM triage agent, then paste/GitHub leak watch.
       section, display-only summaries, ccTLD country inference, breach trend
 - [ ] HIBP domain-search collector — **deferred**: requires owned+verified domains and
       an `HIBP_API_KEY`; revisit if the user ever has domains to protect
-- [ ] VulnCheck KEV collector — exploited CVEs beyond CISA KEV (free community token)
+- [x] VulnCheck KEV collector (`vulncheck_kev`) — exploited CVEs not yet in CISA KEV
+      (free community token); CISA wins overlaps; compact list + alerts on matches
 - [x] Daily history + Trends section (`core/trends.py`, state `history` capped at 60
       days; comparisons only once history spans both windows)
 - [x] AI analyst notes (summarize half of LLM triage): produced by the cloud Routine's

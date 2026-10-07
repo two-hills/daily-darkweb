@@ -17,7 +17,7 @@ from daily_darkweb.core.models import (
     Watchlist,
 )
 from daily_darkweb.core.scoring import score_item
-from daily_darkweb.core.trends import RANSOMWARE_SOURCE
+from daily_darkweb.core.trends import KEV_SOURCE, RANSOMWARE_SOURCE, VULNCHECK_SOURCE
 
 ProfileFetcher = Callable[[str], Awaitable[GroupProfile]]
 
@@ -35,7 +35,7 @@ async def run_pipeline(
         if result.status is CollectionStatus.OK:
             collected.extend(result.items)
 
-    new_items = filter_new(dedupe(collected), seen_keys)
+    new_items = filter_new(dedupe(_prefer_cisa(collected)), seen_keys)
 
     alerts: list[Alert] = []
     observations: list[Alert] = []
@@ -54,6 +54,16 @@ async def run_pipeline(
         alerts=alerts,
         observations=observations,
     )
+
+
+def _prefer_cisa(items: list[RawItem]) -> list[RawItem]:
+    """A CVE that CISA KEV lists is reported from CISA (authoritative, with a deadline),
+    so a VulnCheck copy of it from the same run is dropped. The VulnCheck collector already
+    skips entries it knows CISA lists; this covers the sync lag between the catalogues."""
+    cisa = {i.external_id.upper() for i in items if i.source == KEV_SOURCE}
+    return [
+        i for i in items if not (i.source == VULNCHECK_SOURCE and i.external_id.upper() in cisa)
+    ]
 
 
 async def enrich_group_profiles(report: Report, fetch: ProfileFetcher, limit: int) -> Report:

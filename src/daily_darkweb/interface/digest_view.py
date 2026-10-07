@@ -24,6 +24,7 @@ from daily_darkweb.core.sanitize import clip
 
 _VULN_SOURCE = "cisa_kev"
 _BREACH_SOURCE = "hibp"
+_EARLY_SOURCE = "vulncheck_kev"
 TOP_OBSERVATIONS = 10
 BREACH_WATCH_TITLE = "Breach watch"
 BREACH_WATCH_NOTE = (
@@ -51,6 +52,14 @@ OVERVIEW_NOTE = (
     "references."
 )
 OVERVIEW_ITEMS = 15  # one-line entries per overview section
+EARLY_WARNINGS_TITLE = "Not yet in CISA KEV — reported exploited (VulnCheck KEV)"
+EARLY_WARNINGS_NOTE = (
+    "Exploited CVEs that VulnCheck KEV lists but CISA KEV doesn't (yet), one line each; "
+    "watchlist matches appear in full under Watchlist alerts. Source: VulnCheck KEV "
+    "(vulncheck.com)."
+)
+EARLY_WARNINGS_SHOWN = 20
+EARLY_WARNING_MARK = "not yet in CISA KEV"
 DESCRIPTION_LIMIT = 500
 SNIPPET_LIMIT = 140
 # Tactics a defence plan acts on, in reading order. Initial Access is shown with the
@@ -108,6 +117,17 @@ def item_description(item: RawItem, limit: int = DESCRIPTION_LIMIT) -> tuple[boo
 def detail_lines(item: RawItem) -> list[str]:
     """A KEV item's structured body (vendor/product, summary, required action, …)."""
     return [line.strip() for line in item.body.splitlines() if line.strip()]
+
+
+def early_warning_line(alert: Alert) -> str:
+    """'CVE-2026-51886: Langflow … — added 2026-10-06' for the compact list."""
+    item = alert.item
+    added = f" — added {item.published_at:%Y-%m-%d}" if item.published_at else ""
+    return f"{item.title}{added}"
+
+
+def is_early_warning(item: RawItem) -> bool:
+    return item.source == _EARLY_SOURCE
 
 
 def victim_context(item: RawItem) -> str:
@@ -225,6 +245,8 @@ class DigestView:
     vulnerability_watch: list[Alert]
     breach_watch: list[Alert]
     has_breach_source: bool  # the section is shown only when the catalogue was read
+    early_warnings: list[Alert]  # exploited, not yet in CISA KEV (VulnCheck KEV)
+    has_early_warning_source: bool
     landscape_observations: list[Alert]
     landscape_total: int
     top_actors: list[tuple[str, int]]
@@ -235,8 +257,11 @@ class DigestView:
 def build_view(report: Report) -> DigestView:
     vuln_watch = [a for a in report.observations if a.item.source == _VULN_SOURCE]
     breach_watch = [a for a in report.observations if a.item.source == _BREACH_SOURCE]
+    early = [a for a in report.observations if a.item.source == _EARLY_SOURCE]
     landscape = [
-        a for a in report.observations if a.item.source not in (_VULN_SOURCE, _BREACH_SOURCE)
+        a
+        for a in report.observations
+        if a.item.source not in (_VULN_SOURCE, _BREACH_SOURCE, _EARLY_SOURCE)
     ]
     actors = Counter(a.item.actor for a in landscape if a.item.actor)
     sectors = Counter(a.item.sector for a in landscape if a.item.sector)
@@ -246,6 +271,11 @@ def build_view(report: Report) -> DigestView:
         vulnerability_watch=sorted(vuln_watch, key=lambda a: a.score, reverse=True),
         breach_watch=sorted(breach_watch, key=lambda a: a.score, reverse=True),
         has_breach_source=any(r.source == _BREACH_SOURCE for r in report.collector_results),
+        # Newest first: almost all score alike (unmatched signals are capped).
+        early_warnings=sorted(
+            early, key=lambda a: (a.score, a.item.published_at or a.item.fetched_at), reverse=True
+        ),
+        has_early_warning_source=any(r.source == _EARLY_SOURCE for r in report.collector_results),
         landscape_observations=landscape,
         landscape_total=len(landscape),
         top_actors=actors.most_common(TOP_STATS),

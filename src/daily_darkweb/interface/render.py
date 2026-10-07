@@ -20,6 +20,9 @@ from daily_darkweb.interface.digest_view import (
     AI_NOTES_TITLE,
     BREACH_WATCH_NOTE,
     BREACH_WATCH_TITLE,
+    EARLY_WARNINGS_NOTE,
+    EARLY_WARNINGS_SHOWN,
+    EARLY_WARNINGS_TITLE,
     PROFILES_NOTE,
     PROFILES_TITLE,
     SNIPPET_LIMIT,
@@ -27,6 +30,7 @@ from daily_darkweb.interface.digest_view import (
     build_view,
     defense_tactics,
     detail_lines,
+    early_warning_line,
     exploited_cve_lines,
     format_delta,
     history_note,
@@ -68,13 +72,24 @@ def render_markdown(report: Report) -> str:
         lines.append("No watchlist matches in new signals.")
     lines.append("")
 
-    lines.append(f"## Vulnerability watch ({len(view.vulnerability_watch)})")
+    vuln_total = len(view.vulnerability_watch) + len(view.early_warnings)
+    lines.append(f"## Vulnerability watch ({vuln_total})")
     lines.append("Every new confirmed-exploited CVE from CISA KEV, beyond your watchlist.")
     if view.vulnerability_watch:
         for alert in view.vulnerability_watch:
             lines.extend(_render_alert(alert, profiled))
     else:
         lines.append("No additional exploited CVEs outside your watchlist this run.")
+    if view.has_early_warning_source:
+        lines.extend(["", f"### {EARLY_WARNINGS_TITLE} ({len(view.early_warnings)})"])
+        lines.append(EARLY_WARNINGS_NOTE)
+        for alert in view.early_warnings[:EARLY_WARNINGS_SHOWN]:
+            lines.append(f"- [{alert.severity.value}] {early_warning_line(alert)}")
+        more = len(view.early_warnings) - EARLY_WARNINGS_SHOWN
+        if more > 0:
+            lines.append(f"- +{more} more")
+        if not view.early_warnings:
+            lines.append("None new outside your watchlist this run.")
     lines.append("")
 
     if view.has_breach_source:
@@ -223,6 +238,11 @@ def _render_trends(trends: Trends) -> list[str]:
         lines.append(f"- KEV deadlines in the next {DUE_SOON_DAYS} days: {due}")
     if trends.breaches_added:
         lines.append(f"- Breaches added to HIBP: {format_delta(trends.breaches_added)}")
+    if trends.vulncheck_added:
+        lines.append(
+            "- Exploited CVEs added to VulnCheck KEV, not in CISA KEV: "
+            f"{format_delta(trends.vulncheck_added)}"
+        )
     lines.extend([f"- {history_note(trends)}", ""])
     return lines
 

@@ -355,3 +355,37 @@ def test_breach_watch_card_and_overview_line() -> None:
     assert "<h2>Breach watch (1)</h2>" in overview
     assert "Angel &lt;One&gt;: 6,765,054 accounts exposed" in overview
     assert "Data &lt;b&gt;posted" not in overview  # summaries stay in the attachment
+
+
+def test_vulncheck_list_links_to_nvd_and_overview_marks_it() -> None:
+    item = make_item(
+        source="vulncheck_kev",
+        external_id="CVE-2026-0001",
+        title="CVE-2026-0001: <b>Gateway</b> RCE",
+        published_at=datetime(2026, 7, 26, tzinfo=UTC),
+        actor=None,
+        sector=None,
+        country=None,
+        reference_url="https://nvd.nist.gov/vuln/detail/CVE-2026-0001",
+    )
+    report = _report(
+        alerts=[], observations=[Alert(item=item, matches=[], score=45, severity=Severity.MEDIUM)]
+    )
+    report = report.model_copy(
+        update={
+            "collector_results": [
+                *report.collector_results,
+                CollectResult(source="vulncheck_kev", status=CollectionStatus.OK),
+            ]
+        }
+    )
+    html = render_html(report)
+    assert "<h2>Vulnerability watch (1)</h2>" in html
+    assert "Nothing new from CISA KEV this run." in html
+    assert (
+        "<li>[medium] <a href='https://nvd.nist.gov/vuln/detail/CVE-2026-0001' target='_blank' "
+        "rel='noopener'>CVE-2026-0001: &lt;b&gt;Gateway&lt;/b&gt; RCE — added 2026-07-26</a></li>"
+    ) in html
+    overview = render_html_overview(report)
+    assert "CVE-2026-0001: &lt;b&gt;Gateway&lt;/b&gt; RCE" in overview
+    assert "not yet in CISA KEV" in overview
