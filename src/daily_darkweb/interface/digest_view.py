@@ -14,6 +14,7 @@ from daily_darkweb.core.models import (
     Alert,
     AttackTactic,
     CountDelta,
+    ExploitedCve,
     GroupProfile,
     RawItem,
     Report,
@@ -31,9 +32,18 @@ AI_NOTES_DISCLAIMER = (
 )
 PROFILES_TITLE = "Threat actor profiles"
 PROFILES_NOTE = (
-    "Who the groups behind today's signals are and how they operate, so no one needs to "
-    "visit their sites. Source: ransomware.live (MITRE ATT&CK mapping)."
+    "Who the groups behind today's signals are, how they get in and operate, and which "
+    "vulnerabilities they exploit, so no one needs to visit their sites. Source: "
+    "ransomware.live (MITRE ATT&CK mapping)."
 )
+CVES_PER_PROFILE = 5
+OVERVIEW_TITLE = "Daily Darkweb digest — overview"
+OVERVIEW_NOTE = (
+    "Overview of a large report. The attached HTML report has every detail: victim "
+    "descriptions, infostealer exposure, press coverage, threat-actor profiles (how they "
+    "get in, the vulnerabilities they exploit, their tools) and backup references."
+)
+OVERVIEW_ITEMS = 15  # one-line entries per overview section
 DESCRIPTION_LIMIT = 500
 SNIPPET_LIMIT = 140
 # Tactics a defence plan acts on, in reading order. Initial Access is shown with the
@@ -99,6 +109,73 @@ def victim_context(item: RawItem) -> str:
     if item.victim_domain:
         parts.append(f"website {item.victim_domain}")
     return " · ".join(parts)
+
+
+def infostealer_note(item: RawItem) -> str | None:
+    """'1 employee, 120 users with credentials stolen by infostealer malware (latest
+    employee infection 2026-08-01)' — counts only, as the source reports them."""
+    exposure = item.infostealer
+    if exposure is None:
+        return None
+    counts = [
+        _plural(n, noun)
+        for n, noun in (
+            (exposure.employees, "employee"),
+            (exposure.users, "user"),
+            (exposure.third_parties, "third-party account"),
+        )
+        if n
+    ]
+    if not counts:
+        return None
+    latest = [
+        f"latest {who} infection {day}"
+        for who, day in (
+            ("employee", exposure.last_employee_compromised),
+            ("user", exposure.last_user_compromised),
+        )
+        if day
+    ]
+    note = f"{', '.join(counts)} with credentials stolen by infostealer malware"
+    return note + (f" ({'; '.join(latest)})" if latest else "")
+
+
+def _plural(n: int, noun: str) -> str:
+    return f"{n:,} {noun}" + ("" if n == 1 else "s")
+
+
+def profile_facts(profile: GroupProfile) -> list[str]:
+    """'tracked since 2022-10-08', '2,342 victims claimed', … — whichever are known."""
+    facts = []
+    if profile.first_seen:
+        facts.append(f"tracked since {profile.first_seen}")
+    if profile.victim_count is not None:
+        facts.append(f"{profile.victim_count:,} victims claimed")
+    if profile.last_seen:
+        facts.append(f"latest claim {profile.last_seen}")
+    if profile.aliases:
+        facts.append(f"also known as {', '.join(profile.aliases)}")
+    return facts
+
+
+def cve_line(cve: ExploitedCve) -> str:
+    """'CVE-2025-31324 — SAP NetWeaver Visual Composer (CVSS 10.0, critical)'."""
+    line = cve.cve_id
+    product = " ".join(part for part in (cve.vendor, cve.product) if part)
+    if product:
+        line += f" — {product}"
+    rating = [f"CVSS {cve.cvss:.1f}"] if cve.cvss is not None else []
+    if cve.severity:
+        rating.append(cve.severity)
+    return line + (f" ({', '.join(rating)})" if rating else "")
+
+
+def exploited_cve_lines(profile: GroupProfile) -> list[str]:
+    """Highest CVSS first (the collector's order), capped so emails stay readable."""
+    shown = profile.exploited_cves[:CVES_PER_PROFILE]
+    lines = [cve_line(cve) for cve in shown]
+    more = len(profile.exploited_cves) - len(shown)
+    return lines + ([f"(+{more} more)"] if more > 0 else [])
 
 
 def tactic_line(tactic: AttackTactic) -> str:

@@ -10,7 +10,9 @@ from daily_darkweb.core.models import (
     CollectionStatus,
     CollectResult,
     DailySummary,
+    ExploitedCve,
     GroupProfile,
+    InfostealerExposure,
     KevEntry,
     Match,
     MatchField,
@@ -193,7 +195,20 @@ def _profile() -> GroupProfile:
         name="qilin",
         description="Double extortion group.",
         first_seen=date(2022, 10, 8),
+        last_seen=date(2026, 10, 7),
+        victim_count=2342,
         aliases=["Agenda"],
+        exploited_cves=[
+            ExploitedCve(
+                cve_id="CVE-2025-31324",
+                vendor="SAP",
+                product="NetWeaver",
+                cvss=10.0,
+                severity="critical",
+            ),
+            *(ExploitedCve(cve_id=f"CVE-2024-{i:04d}", cvss=9.0 - i) for i in range(4)),
+            ExploitedCve(cve_id="CVE-2023-0001", vendor="Veeam"),
+        ],
         tools={
             "CredentialTheft": ["Mimikatz"],
             "LOLBAS": ["PowerShell", "PsExec", "WinRM", "fsutil", "wmic", "certutil"],
@@ -252,7 +267,14 @@ def test_profile_section_shows_how_the_group_operates() -> None:
     report = _report(alerts=[], observations=[]).model_copy(update={"group_profiles": [_profile()]})
     rendered = render_markdown(report)
     assert "## Threat actor profiles (1)" in rendered
-    assert "_tracked since 2022-10-08; also known as Agenda_" in rendered
+    assert (
+        "_tracked since 2022-10-08; 2,342 victims claimed; latest claim 2026-10-07; "
+        "also known as Agenda_"
+    ) in rendered
+    assert "- Vulnerabilities they exploit (highest CVSS first):" in rendered
+    assert "  - CVE-2025-31324 — SAP NetWeaver (CVSS 10.0, critical)" in rendered
+    assert "  - CVE-2024-0000 (CVSS 9.0)" in rendered
+    assert "  - (+1 more)" in rendered  # five shown, the sixth summarized
     assert "  - Valid Accounts (T1078): Stolen VPN creds." in rendered
     assert "- Impact: Tech 0 (T140), Tech 1 (T141), Tech 2 (T142), Tech 3 (T143) (+2 more)" in (
         rendered
@@ -264,7 +286,8 @@ def test_profile_section_shows_how_the_group_operates() -> None:
     ) in rendered
     assert "- Reference (backup link): https://www.ransomware.live/group/qilin" in rendered
     # Initial Access comes first even though the source listed it last.
-    assert rendered.index("How they get in") < rendered.index("- Impact:")
+    assert rendered.index("How they get in") < rendered.index("Vulnerabilities they exploit")
+    assert rendered.index("Vulnerabilities they exploit") < rendered.index("- Impact:")
 
 
 def test_profile_without_ttps_says_so_and_failed_lookups_are_listed() -> None:
@@ -316,3 +339,21 @@ def test_landscape_observations_include_a_description_snippet() -> None:
 
 def _obs_from(item: RawItem) -> Alert:
     return Alert(item=item, matches=[], score=45, severity=Severity.MEDIUM)
+
+
+def test_alert_carries_infostealer_counts_and_press_coverage() -> None:
+    item = make_item(
+        infostealer=InfostealerExposure(
+            employees=1, users=120, last_employee_compromised=date(2026, 8, 1)
+        ),
+        press_url="https://news.example/acme-attack",
+        reference_url="https://www.ransomware.live/id/x",
+    )
+    alert = Alert(item=item, matches=[], score=63, severity=Severity.MEDIUM)
+    rendered = render_markdown(_report(alerts=[alert], observations=[]))
+    assert (
+        "- Infostealer exposure: 1 employee, 120 users with credentials stolen by infostealer "
+        "malware (latest employee infection 2026-08-01)"
+    ) in rendered
+    assert "- Press coverage (backup link): https://news.example/acme-attack" in rendered
+    assert rendered.index("Press coverage") < rendered.index("Reference (backup link)")

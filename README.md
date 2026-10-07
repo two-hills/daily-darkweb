@@ -34,12 +34,15 @@ collectors (async, timeout, fail-closed)
   context, the (unverified) claim text, KEV summary, required action and deadline — and
   links remain only as a labelled backup.
 - 🧭 **Threat actor profiles.** For the groups behind your alerts (then the most active
-  ones), the digest explains who they are, **how they get in** (MITRE ATT&CK initial-access
-  techniques with details), how they operate (defence evasion, credential access, lateral
-  movement, exfiltration, impact) and which tools they use — the input for a defence plan.
+  ones), the digest explains who they are (first and latest claim, victim count), **how
+  they get in** (MITRE ATT&CK initial-access techniques with details), **which
+  vulnerabilities they exploit** (CVEs, highest CVSS first), how they operate (defence
+  evasion, credential access, lateral movement, exfiltration, impact) and which tools they
+  use — the input for a defence plan. Alerts also show the victim's infostealer exposure
+  (counts of compromised employee/user credentials) and press coverage when known.
 - 🧹 **No leak-site links, ever.** All scraped text is scrubbed of .onion addresses, URLs
-  and email addresses before it's stored or shown; the source's leak-site and screenshot
-  fields are never read.
+  and email addresses before it's stored or shown; the source's leak-site, screenshot and
+  account fields are never read.
 - 🚫 **Fail-closed.** A collector error is surfaced in the digest as an explicit failure
   ("do not treat as all-clear") — never silently dropped or reported as a clean run.
 - 🎯 **Deterministic.** No AI in the matching or scoring path. Same input always produces the
@@ -59,11 +62,14 @@ collectors (async, timeout, fail-closed)
 
 | Source | Signal | Auth |
 |---|---|---|
-| [ransomware.live](https://ransomware.live) 💀 | Ransomware group victim-claim metadata | none |
+| [ransomware.live](https://ransomware.live) 💀 | Ransomware victim-claim metadata, group intel (TTPs, exploited CVEs, tools) | free API PRO key |
 | [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) 🚨 | Vulnerabilities confirmed exploited in the wild | none |
 
-Both are free and require no API key. See [docs/roadmap.md](docs/roadmap.md) for planned
-sources (breach exposure, leak-site/paste watch, LLM alert ranking). 🗺️
+Both are free. ransomware.live's API PRO needs a key from
+[ransomware.live/my](https://www.ransomware.live/my): put `RANSOMWARE_LIVE_API_KEY` in
+`.env` for local runs (the cloud Routine gets it from its environment's API credentials —
+see [docs/operations.md](docs/operations.md)). See [docs/roadmap.md](docs/roadmap.md) for
+planned sources (breach exposure, leak-site/paste watch, LLM alert ranking). 🗺️
 
 ## 🚀 Quickstart
 
@@ -73,6 +79,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12+.
 git clone <this-repo>
 cd daily-darkweb
 uv sync
+echo 'RANSOMWARE_LIVE_API_KEY=<your free key>' >> .env            # 🔑 ransomware.live API PRO
 uv run daily-darkweb --html-out digest.html && open digest.html   # 🌐 browsable report
 ```
 
@@ -159,7 +166,8 @@ Two ways, both documented in [docs/operations.md](docs/operations.md):
 - ☁️ **Cloud Routine on claude.ai** (no machine of your own): a scheduled Claude Code
   session runs the pipeline, commits the state file, writes the AI analyst notes, and emails
   the HTML digest (inline + attached) through the Gmail connector — every run, clean ones
-  included, so a missing email always means something broke. The instructions to paste
+  included, so a missing email always means something broke. On heavy days the email body
+  is a short overview (`--overview-out`) and the full report travels as the attachment. The instructions to paste
   into the Routine are in [ops/routine_prompt.md](ops/routine_prompt.md); the setup
   (network allowlist, GitHub App, email) is in the
   [Cloud Routine runbook](docs/operations.md#cloud-routine-claudeai).

@@ -45,6 +45,19 @@ def _ensure_aware(value: datetime) -> datetime:
     return value
 
 
+class InfostealerExposure(BaseModel):
+    """How many infostealer-infected computers held credentials for a victim's domain,
+    as the source reports it. Counts and dates only — never the stolen data itself."""
+
+    model_config = ConfigDict(frozen=True)
+
+    employees: int = 0
+    users: int = 0
+    third_parties: int = 0
+    last_employee_compromised: date | None = None
+    last_user_compromised: date | None = None
+
+
 class RawItem(BaseModel):
     """One normalized signal from any collector. Content fields are untrusted data."""
 
@@ -62,6 +75,8 @@ class RawItem(BaseModel):
     victim_domain: str | None = None
     reference_url: str | None = None
     due_date: datetime | None = None  # remediation deadline, when the source provides one
+    press_url: str | None = None  # clearnet news coverage of the claim, a backup link only
+    infostealer: InfostealerExposure | None = None
 
     @field_validator("fetched_at", "published_at", "due_date")
     @classmethod
@@ -189,17 +204,30 @@ class AttackTactic(BaseModel):
     techniques: list[AttackTechnique] = Field(default_factory=list)
 
 
+class ExploitedCve(BaseModel):
+    """A vulnerability a group is known to exploit, as the source maps it."""
+
+    cve_id: str
+    vendor: str = ""
+    product: str = ""
+    cvss: float | None = None
+    severity: str | None = None
+
+
 class GroupProfile(BaseModel):
     """What a defender needs to know about a ransomware group, readable without visiting
-    any site: who they are, how they get in and operate, and which tools they use.
-    Built from structured clearnet data; the group's leak-site addresses are never kept."""
+    any site: who they are, how they get in and operate, which vulnerabilities and tools
+    they use. Built from structured clearnet data; leak-site addresses are never kept."""
 
     name: str
     description: str = ""
     first_seen: date | None = None
+    last_seen: date | None = None
+    victim_count: int | None = None
     aliases: list[str] = Field(default_factory=list)
     tools: dict[str, list[str]] = Field(default_factory=dict)
     tactics: list[AttackTactic] = Field(default_factory=list)
+    exploited_cves: list[ExploitedCve] = Field(default_factory=list)  # highest CVSS first
     reference_url: str | None = None
 
 

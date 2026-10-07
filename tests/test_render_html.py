@@ -10,7 +10,9 @@ from daily_darkweb.core.models import (
     CollectionStatus,
     CollectResult,
     DailySummary,
+    ExploitedCve,
     GroupProfile,
+    InfostealerExposure,
     KevEntry,
     Match,
     MatchField,
@@ -18,7 +20,7 @@ from daily_darkweb.core.models import (
     Severity,
 )
 from daily_darkweb.core.trends import compute_trends
-from daily_darkweb.interface.render_html import render_html
+from daily_darkweb.interface.render_html import render_html, render_html_overview
 from tests.conftest import make_item
 
 
@@ -220,3 +222,103 @@ def test_html_is_email_safe_no_css_variables() -> None:
     assert "<span class='badge badge-high' style='background:#b5560a;color:#ffffff'>" in html
     assert "style='background:#6b4fbb;color:#ffffff'>AI generated</span>" in html
     assert "style='background:#6b4fbb;color:#ffffff'>AI-generated description</span>" in html
+
+
+def test_profile_card_lists_exploited_cves_and_activity_facts() -> None:
+    profile = GroupProfile(
+        name="qilin",
+        first_seen=date(2022, 10, 8),
+        victim_count=2342,
+        exploited_cves=[
+            ExploitedCve(cve_id="CVE-2024-21762", vendor="<b>Fortinet</b>", cvss=9.8),
+        ],
+    )
+    report = _report(alerts=[], observations=[]).model_copy(update={"group_profiles": [profile]})
+    html = render_html(report)
+    assert "tracked since 2022-10-08; 2,342 victims claimed" in html
+    assert "<p class='subhead'>Vulnerabilities they exploit</p>" in html
+    assert "<li>CVE-2024-21762 — &lt;b&gt;Fortinet&lt;/b&gt; (CVSS 9.8)</li>" in html
+
+
+def test_alert_card_shows_infostealer_exposure_and_press_link() -> None:
+    item = make_item(
+        infostealer=InfostealerExposure(third_parties=2),
+        press_url="https://news.example/a?b=1&c=<x>",
+    )
+    alert = Alert(item=item, matches=[], score=63, severity=Severity.MEDIUM)
+    html = render_html(_report(alerts=[alert], observations=[]))
+    assert (
+        "<b>Infostealer exposure:</b> 2 third-party accounts with credentials stolen by "
+        "infostealer malware</p>"
+    ) in html
+    assert "Press coverage (backup link): <a href='https://news.example/a?b=1&amp;c=&lt;x&gt;'" in (
+        html
+    )
+
+
+def _heavy_report() -> Report:
+    alerts = [
+        Alert(
+            item=make_item(
+                external_id=f"a{i}",
+                title=f"<i>Victim {i}</i> claimed by qilin",
+                body="A long unverified claim text that belongs in the attachment only.",
+                reference_url=f"https://www.ransomware.live/id/{i}",
+            ),
+            matches=[Match(field=MatchField.SECTOR, watch_value="Healthcare", matched_text="x")],
+            score=70 - i,
+            severity=Severity.HIGH,
+        )
+        for i in range(20)
+    ]
+    kev = Alert(
+        item=make_item(
+            source="cisa_kev",
+            external_id="CVE-2026-4444",
+            title="CVE-2026-4444: Gateway RCE",
+            body="Vendor: Acme | Product: Gateway",
+            due_date=datetime(2026, 8, 10, tzinfo=UTC),
+            actor=None,
+            sector=None,
+            country=None,
+            reference_url="https://nvd.nist.gov/vuln/detail/CVE-2026-4444",
+        ),
+        matches=[],
+        score=60,
+        severity=Severity.MEDIUM,
+    )
+    return _report(alerts=alerts, observations=[kev]).model_copy(
+        update={
+            "collector_results": [
+                CollectResult(source="ransomware_live", status=CollectionStatus.OK, items=[]),
+                CollectResult(source="cisa_kev", status=CollectionStatus.FAILED, error="boom"),
+            ],
+            "analyst_notes": AnalystNotes(headline="Busy day for qilin", points=["p"]),
+            "group_profiles": [GroupProfile(name="qilin", description="Profile text.")],
+        }
+    )
+
+
+def test_overview_is_a_compact_link_free_summary_of_a_heavy_report() -> None:
+    report = _heavy_report()
+    overview = render_html_overview(report)
+    full = render_html(report)
+
+    assert "<h1>Daily Darkweb digest — overview</h1>" in overview
+    assert "The attached HTML report has every detail" in overview
+    assert "FAILED — could not determine, do not treat as all-clear (boom)" in overview
+    assert "Busy day for qilin" in overview  # AI notes lead, with their label
+    assert ">AI generated</span>" in overview
+    assert "<h2>Watchlist alerts (20)</h2>" in overview
+    assert "&lt;i&gt;Victim 0&lt;/i&gt; claimed by qilin" in overview  # escaped
+    assert "Healthcare Services · TH · matched Healthcare" in overview
+    assert "+5 more in the attached report" in overview  # 15 shown
+    assert "CVE-2026-4444: Gateway RCE" in overview
+    assert "patch by 2026-08-10" in overview
+    assert "Threat actor profiles in the attached report: qilin" in overview
+    # Details stay in the attachment, and the overview carries no links at all.
+    assert "A long unverified claim text" not in overview
+    assert "Profile text." not in overview
+    assert "<a " not in overview
+    assert "var(" not in overview
+    assert len(overview) < len(full) / 2

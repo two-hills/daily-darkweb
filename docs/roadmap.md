@@ -1,6 +1,20 @@
 # Roadmap
 
-**Current status (2026-09-29):** The digest now reads on its own — the project's purpose
+**Current status (2026-10-07):** ransomware.live moved to its **API PRO** (free key; the
+keyless v2 API is personal-use only). The key lives in the cloud environment's API
+credentials — the network proxy adds it, so it never enters the Routine's session; local
+runs use `RANSOMWARE_LIVE_API_KEY`. Seen-state carries over: PRO permalinks drop the base64
+padding that v2-era dedup keys kept, and the collector restores it (verified against the
+live feeds: 87 overlapping victims, identical keys). PRO lists victims by discovery time,
+which surfaced 11 claims (posted with older attack dates) that v2's recent list never
+showed. New in the digest: per-group **exploited CVEs** (highest CVSS first), victim count
+and latest claim; per-victim **infostealer exposure** counts and press-coverage links.
+Fields that point at leak sites or our account (`post_url`, `screenshot`, `locations`,
+`client`) are never read. Heavy reports (> 25 KB) now get a deterministic **overview** as
+the email body with the full report attached (`--overview-out`, prompt v5). Next: HIBP
+breach catalogue (no key), then VulnCheck KEV (free community token).
+
+**Previous status (2026-09-29):** The digest now reads on its own — the project's purpose
 is that nobody on our side has to visit the dark web or leak-site mirrors. Alerts carry
 victim context, the unverified claim text and KEV details inline; a new **Threat actor
 profiles** section (ransomware.live structured group data: description, first seen,

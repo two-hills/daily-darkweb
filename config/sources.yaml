@@ -1,9 +1,11 @@
 ransomware_live:
   enabled: true
-  base_url: "https://api.ransomware.live/v2"
+  # API PRO (free key, sent as X-API-KEY): cloud runs get it from the environment's
+  # API credentials, local runs from RANSOMWARE_LIVE_API_KEY in .env — never from here.
+  base_url: "https://api-pro.ransomware.live"
   timeout_seconds: 15.0
   max_items: 100
-  group_profiles: 5   # threat-actor profiles (TTPs, tools) per digest; 0 = off
+  group_profiles: 5   # threat-actor profiles (TTPs, exploited CVEs, tools); 0 = off
 
 cisa_kev:
   enabled: true

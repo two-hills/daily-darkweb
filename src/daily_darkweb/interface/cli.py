@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, ValidationError
 from daily_darkweb.collectors.base import Collector
 from daily_darkweb.collectors.cisa_kev import CisaKevCollector
 from daily_darkweb.collectors.ransomware_live import RansomwareLiveCollector
-from daily_darkweb.config import SourcesConfig, load_sources, load_watchlist
+from daily_darkweb.config import ApiKeys, SourcesConfig, load_sources, load_watchlist
 from daily_darkweb.core.dedup import dedup_key
 from daily_darkweb.core.models import AnalystNotes, DailySummary, Report
 from daily_darkweb.core.trends import compute_trends, merge_history, summarize
@@ -26,7 +26,7 @@ from daily_darkweb.interface.email_send import (
     should_notify,
 )
 from daily_darkweb.interface.render import render_markdown
-from daily_darkweb.interface.render_html import render_html
+from daily_darkweb.interface.render_html import render_html, render_html_overview
 from daily_darkweb.orchestration.pipeline import enrich_group_profiles, run_pipeline
 
 _MAX_SEEN_KEYS = 50_000
@@ -96,16 +96,18 @@ def _effective_recent_days(configured: int, last_success: datetime | None, now: 
 
 
 def _build_collectors(
-    sources: SourcesConfig, client: httpx.AsyncClient, *, kev_since: date
+    sources: SourcesConfig, client: httpx.AsyncClient, *, kev_since: date, keys: ApiKeys
 ) -> list[Collector]:
     collectors: list[Collector] = []
     if sources.ransomware_live.enabled:
+        key = keys.ransomware_live_api_key
         collectors.append(
             RansomwareLiveCollector(
                 client,
                 base_url=sources.ransomware_live.base_url,
                 timeout_seconds=sources.ransomware_live.timeout_seconds,
                 max_items=sources.ransomware_live.max_items,
+                api_key=key.get_secret_value() if key else None,
             )
         )
     if sources.cisa_kev.enabled:
@@ -164,7 +166,7 @@ async def _collect(
     async with httpx.AsyncClient(
         headers={"User-Agent": "daily-darkweb/0.1 (defensive CTI research)"}
     ) as client:
-        collectors = _build_collectors(sources, client, kev_since=kev_since)
+        collectors = _build_collectors(sources, client, kev_since=kev_since, keys=ApiKeys())
         if not collectors:
             print("No collectors enabled; nothing to do.", file=sys.stderr)
             return None
@@ -218,6 +220,11 @@ def _emit(report: Report, args: argparse.Namespace) -> None:
         html_path.parent.mkdir(parents=True, exist_ok=True)
         html_path.write_text(html_body or render_html(report), encoding="utf-8")
 
+    if args.overview_out:
+        overview_path = Path(args.overview_out)
+        overview_path.parent.mkdir(parents=True, exist_ok=True)
+        overview_path.write_text(render_html_overview(report), encoding="utf-8")
+
     if args.report_out:
         report_path = Path(args.report_out)
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -263,6 +270,12 @@ def main() -> int:
     parser.add_argument("--format", choices=["md", "json", "html"], default="md")
     parser.add_argument(
         "--html-out", default=None, help="also write a browsable HTML digest to this path"
+    )
+    parser.add_argument(
+        "--overview-out",
+        default=None,
+        help="also write a compact HTML overview (email body for heavy days, with the full "
+        "digest attached) to this path",
     )
     parser.add_argument(
         "--email",

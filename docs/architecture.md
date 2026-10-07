@@ -49,6 +49,13 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 - **Outbound safety:** collectors call only configured base URLs; per-call timeouts;
   retries on 429/5xx/timeouts only (honoring Retry-After, capped); auth/validation 4xx
   never retried; result sets bounded by `max_items`.
+- **API keys never enter the cloud session.** ransomware.live's API PRO wants an
+  `X-API-KEY` header. In the cloud Routine the environment's API credentials make the
+  network proxy add it to requests for `api-pro.ransomware.live` after they leave the
+  session, so neither the model nor any command ever sees the key (a prompt-injected
+  digest has nothing to exfiltrate). Local runs read `RANSOMWARE_LIVE_API_KEY` from
+  env/.env (`config.ApiKeys`, a `SecretStr`), and the key travels as a per-request header
+  to that source only. A missing or rejected key is an explicit FAILED, never retried.
 - **State:** `.state/seen.json` holds only dedup hashes (capped at 50k keys) plus
   `last_success`, the timestamp of the last run with zero collector failures. The CLI
   stretches the KEV lookback window to `max(recent_days, days since last_success)`
@@ -69,10 +76,12 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   `[AI generated]` (ransomware.live descriptions) gets a visible badge too.
 - **Readable without visiting any source.** The point of the pipeline is that nobody on
   our side opens leak sites or dark-web mirrors, so the digest carries the details
-  inline: victim context, the (unverified) claim text, KEV summary / required action /
-  deadline, and a **threat-actor profile** per relevant group (description, first seen,
-  aliases, MITRE ATT&CK initial-access techniques with details, the defence-relevant
-  tactics, and tools) from ransomware.live's structured group data. Profiles are
+  inline: victim context, the (unverified) claim text, infostealer exposure counts and a
+  press-coverage link when the source has them, KEV summary / required action / deadline,
+  and a **threat-actor profile** per relevant group (description, first and latest claim,
+  victim count, MITRE ATT&CK initial-access techniques with details, the CVEs the group
+  exploits, the defence-relevant tactics, and tools) from ransomware.live's structured
+  group data. Profiles are
   fetched after scoring for the groups behind watchlist alerts first, then the most
   active ones (`group_profiles`, default 5), one request at a time; a failed lookup is
   listed in the digest and is never a collection failure. Links remain only as backup
@@ -80,9 +89,10 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 - **No leak-site links, ever.** `core/sanitize.py` scrubs every scraped text field at the
   collector boundary: .onion addresses, URLs with a scheme and email addresses become
   markers (bare domains stay — a victim's website identifies it). Source markup (`<BR>`,
-  quote markers) is flattened to plain text. The feed's leak-site fields (`claim_url`,
-  `screenshot`, group `locations`) are never modelled, so they cannot reach state,
-  reports or email. Direct dark-web access stays out of scope: deeper coverage comes from
+  quote markers) is flattened to plain text. The feed's leak-site fields (`post_url`,
+  formerly `claim_url`; `screenshot`; group `locations`) and its account field (`client`,
+  the key owner's address) are never modelled, so they cannot reach state, reports or
+  email. Direct dark-web access stays out of scope: deeper coverage comes from
   a sanctioned CTI provider's API as a new collector, not from routing around company or
   ISP controls.
 - **HTML output escapes everything.** `render_html.py` runs every scraped field through
@@ -92,7 +102,10 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
   CSS custom properties; with `var()` colours the body lost its cards and badges (badge
   text went white-on-white) while the same file looked fine opened in a browser. Colours
   are literal values generated per palette (light, plus a dark `@media` block), badges
-  carry inline colours too, and a test fails if `var(` ever reappears.
+  carry inline colours too, and a test fails if `var(` ever reappears. Heavy reports get a
+  deterministic, link-free **overview** (`render_html_overview`, `--overview-out`) as the
+  email body — status, AI notes, one line per alert and exploited CVE, trends — with the
+  full report attached, so the attachment never has to be dropped for size.
 - **Email is a redundant channel, not a source of truth.** `interface/email_send.py`
   loads SMTP identity (user/recipient) from env/`.env` only — never hardcoded, and
   deliberately kept out of committed source since this repo is public. The password
@@ -108,7 +121,7 @@ Weights live in `core/scoring.py` as data — tune there, covered by tests.
 
 | Source | Intel | Status |
 |---|---|---|
-| ransomware_live | ransomware DLS victim claims | live |
+| ransomware_live | ransomware DLS victim claims, group intel (API PRO, free key) | live |
 | cisa_kev | confirmed exploited-in-the-wild CVEs | live |
 | Paste/GitHub leak watch | brand/asset mentions | planned |
 | LLM triage agent | summarize/rank alerts (wrapped data, parse-or-reject) | notes live via cloud Routine; ranking planned |

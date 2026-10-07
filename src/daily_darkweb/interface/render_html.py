@@ -22,6 +22,9 @@ from daily_darkweb.core.trends import DUE_SOON_DAYS, RANSOMWARE_SOURCE
 from daily_darkweb.interface.digest_view import (
     AI_NOTES_DISCLAIMER,
     AI_NOTES_TITLE,
+    OVERVIEW_ITEMS,
+    OVERVIEW_NOTE,
+    OVERVIEW_TITLE,
     PROFILES_NOTE,
     PROFILES_TITLE,
     SNIPPET_LIMIT,
@@ -30,9 +33,12 @@ from daily_darkweb.interface.digest_view import (
     build_view,
     defense_tactics,
     detail_lines,
+    exploited_cve_lines,
     format_delta,
     history_note,
+    infostealer_note,
     item_description,
+    profile_facts,
     profiles_by_group,
     tactic_line,
     tool_lines,
@@ -131,19 +137,72 @@ def _badge(kind: str, label_html: str) -> str:
     return f"<span class='badge badge-{kind}' style='{style}'>{label_html}</span>"
 
 
+def _page_start(title: str, report: Report) -> str:
+    return (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>{escape(title)}</title>"
+        f"<style>{_STYLE}</style></head><body><main>"
+        f"<h1>{escape(title)}</h1>"
+        f"<p class='subtitle'>{report.generated_at:%Y-%m-%d %H:%M} UTC</p>"
+    )
+
+
+def render_html_overview(report: Report) -> str:
+    """Compact email body for heavy days, when the full report travels as the attachment:
+    status, AI notes, one line per alert and exploited CVE, trends. Built from the same
+    report with the same escaping and email-safe styling — and no links at all."""
+    view = build_view(report)
+    landscape = (
+        f"<p class='stats'>New ransomware signals: {view.landscape_total} · most active "
+        f"groups: {_top(view.top_actors)} · most hit countries: {_top(view.top_countries)}</p>"
+    )
+    profiled = ", ".join(p.name for p in report.group_profiles)
+    parts = [
+        _page_start(OVERVIEW_TITLE, report),
+        f"<p class='section-note'>{escape(OVERVIEW_NOTE)}</p>",
+        _render_collector_status(report),
+        _render_notes(report),
+        _overview_section("Watchlist alerts", view.alerts),
+        _overview_section("Vulnerability watch", view.vulnerability_watch),
+        _render_trends(report.trends) if report.trends else "",
+        "<h2>Threat landscape (ransomware, new signals)</h2>" + landscape,
+        (
+            f"<p class='stats'>Threat actor profiles in the attached report: {escape(profiled)}</p>"
+            if profiled
+            else ""
+        ),
+        "</main></body></html>",
+    ]
+    return "".join(parts)
+
+
+def _overview_section(title: str, alerts: list[Alert]) -> str:
+    html = f"<h2>{escape(title)} ({len(alerts)})</h2>"
+    if not alerts:
+        return html + "<p class='empty'>Nothing new here this run.</p>"
+    rows = []
+    for alert in alerts[:OVERVIEW_ITEMS]:
+        item = alert.item
+        badge = _badge(alert.severity.value, f"{alert.severity.value} {alert.score}")
+        context = [x for x in (item.sector, item.country) if x]
+        if item.due_date:
+            context.append(f"patch by {item.due_date:%Y-%m-%d}")
+        if alert.matches:
+            context.append("matched " + ", ".join(m.watch_value for m in alert.matches))
+        suffix = f"<span class='snippet'> — {escape(' · '.join(context))}</span>" if context else ""
+        rows.append(f"<li>{badge}{escape(item.title)}{suffix}</li>")
+    more = len(alerts) - OVERVIEW_ITEMS
+    if more > 0:
+        rows.append(f"<li class='empty'>+{more} more in the attached report</li>")
+    return html + "<ul class='plain'>" + "".join(rows) + "</ul>"
+
+
 def render_html(report: Report) -> str:
     view = build_view(report)
     profiled = profiles_by_group(report)
-    header = (
-        "<h1>Daily Darkweb digest</h1>"
-        f"<p class='subtitle'>{report.generated_at:%Y-%m-%d %H:%M} UTC</p>"
-    )
     parts: list[str] = [
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>",
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
-        "<title>Daily Darkweb digest</title>",
-        f"<style>{_STYLE}</style></head><body><main>",
-        header,
+        _page_start("Daily Darkweb digest", report),
         _render_collector_status(report),
         _render_notes(report),
         _render_trends(report.trends) if report.trends else "",
@@ -196,8 +255,8 @@ def _link(url: str, inner_html: str) -> str:
     return f"<a href='{escape(url)}' target='_blank' rel='noopener'>{inner_html}</a>"
 
 
-def _backup_link(url: str) -> str:
-    return f"<p class='meta'>Reference (backup link): {_link(url, escape(url))}</p>"
+def _backup_link(url: str, label: str = "Reference (backup link)") -> str:
+    return f"<p class='meta'>{escape(label)}: {_link(url, escape(url))}</p>"
 
 
 def _render_alert_card(alert: Alert, profiled: dict[str, GroupProfile]) -> str:
@@ -216,6 +275,8 @@ def _render_alert_card(alert: Alert, profiled: dict[str, GroupProfile]) -> str:
         lines.extend(_ransomware_details(item, profiled))
     else:
         lines.extend(f"<p class='detail'>{escape(line)}</p>" for line in detail_lines(item))
+    if item.press_url:
+        lines.append(_backup_link(item.press_url, "Press coverage (backup link)"))
     if item.reference_url:
         lines.append(_backup_link(item.reference_url))
     lines.append("</div>")
@@ -239,6 +300,9 @@ def _ransomware_details(item: RawItem, profiled: dict[str, GroupProfile]) -> lis
     if item.actor:
         suffix = " — profile below" if item.actor.lower() in profiled else ""
         lines.append(f"<p class='detail'><b>Group:</b> {escape(item.actor)}{suffix}</p>")
+    exposure = infostealer_note(item)
+    if exposure:
+        lines.append(f"<p class='detail'><b>Infostealer exposure:</b> {escape(exposure)}</p>")
     return lines
 
 
@@ -259,11 +323,7 @@ def _render_profiles(report: Report) -> str:
 
 def _render_profile_card(profile: GroupProfile) -> str:
     parts = [f"<div class='card'><p class='card-title'>{escape(profile.name)}</p>"]
-    facts = []
-    if profile.first_seen:
-        facts.append(f"tracked since {profile.first_seen}")
-    if profile.aliases:
-        facts.append(f"also known as {', '.join(profile.aliases)}")
+    facts = profile_facts(profile)
     if facts:
         parts.append(f"<p class='meta'>{escape('; '.join(facts))}</p>")
     if profile.description:
@@ -278,6 +338,10 @@ def _render_profile_card(profile: GroupProfile) -> str:
                 for t in tactic.techniques
             )
             parts.append(f"<p class='subhead'>How they get in (Initial Access)</p><ul>{items}</ul>")
+    cves = exploited_cve_lines(profile)
+    if cves:
+        items = "".join(f"<li>{escape(line)}</li>" for line in cves)
+        parts.append(f"<p class='subhead'>Vulnerabilities they exploit</p><ul>{items}</ul>")
     others = [t for t in tactics if t.name.lower() != "initial access"]
     if others:
         items = "".join(f"<li>{escape(tactic_line(t))}</li>" for t in others)
